@@ -1,19 +1,16 @@
 module github.com/skupperproject/skupper
 
-go 1.22.0
+go 1.23.0
 
-toolchain go1.22.8
+toolchain go1.23.8
 
 require (
 	github.com/Azure/go-amqp v1.0.5
 	github.com/briandowns/spinner v1.23.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-openapi/errors v0.20.3
 	github.com/go-openapi/runtime v0.24.1
 	github.com/go-openapi/strfmt v0.21.3
-	github.com/go-openapi/swag v0.22.8
-	github.com/go-openapi/validate v0.22.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
@@ -28,9 +25,9 @@ require (
 	github.com/skupperproject/skupper-libpod/v4 v4.0.3-0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/sync v0.10.0
-	golang.org/x/sys v0.28.0
-	golang.org/x/text v0.21.0
+	golang.org/x/sync v0.11.0
+	golang.org/x/sys v0.30.0
+	golang.org/x/text v0.22.0
 	golang.org/x/time v0.5.0
 	gotest.tools/v3 v3.5.1
 	k8s.io/api v0.31.0
@@ -42,6 +39,8 @@ require (
 )
 
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
+replace golang.org/x/crypto => golang.org/x/crypto v0.35.0
 
 require (
 	github.com/Azure/azure-sdk-for-go v46.0.0+incompatible // indirect
@@ -61,10 +60,13 @@ require (
 	github.com/getkin/kin-openapi v0.124.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/analysis v0.21.2 // indirect
+	github.com/go-openapi/errors v0.20.3 // indirect
 	github.com/go-openapi/jsonpointer v0.20.2 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/loads v0.21.1 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
+	github.com/go-openapi/swag v0.22.8 // indirect
+	github.com/go-openapi/validate v0.22.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
@@ -92,10 +94,11 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.mongodb.org/mongo-driver v1.10.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
