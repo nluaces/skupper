@@ -8,8 +8,10 @@ import (
 	"sync"
 
 	"github.com/skupperproject/skupper/api/types"
-	"github.com/skupperproject/skupper/internal/cmd/skupper/common"
+	cmd "github.com/skupperproject/skupper/internal/cmd/skupper/common"
 	"github.com/skupperproject/skupper/internal/nonkube/bootstrap"
+	"github.com/skupperproject/skupper/internal/nonkube/common"
+	"github.com/skupperproject/skupper/internal/nonkube/compat"
 	common2 "github.com/skupperproject/skupper/internal/nonkube/common"
 	"github.com/skupperproject/skupper/internal/utils"
 	"github.com/skupperproject/skupper/pkg/nonkube/api"
@@ -26,6 +28,8 @@ type InputResourceHandler struct {
 	TearDown        func(namespace string) error
 	ConfigBootstrap bootstrap.Config
 	lock            sync.Mutex
+	siteStateRenderer *compat.SiteStateRenderer
+	siteStateLoader   api.SiteStateLoader
 }
 
 type Bootstrap func(config *bootstrap.Config) (*api.SiteState, error)
@@ -59,12 +63,12 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 		string(types.PlatformPodman)))
 
 	// TODO: add support for linux platform
-	switch common.Platform(platform) {
-	case common.PlatformDocker:
+	switch cmd.Platform(platform) {
+	case cmd.PlatformDocker:
 		binary = "docker"
-	case common.PlatformPodman:
+	case cmd.PlatformPodman:
 		binary = "podman"
-	case common.PlatformLinux:
+	case cmd.PlatformLinux:
 		handler.logger.Error("Linux platform is not supported yet")
 		return nil
 	default:
@@ -77,6 +81,15 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 		InputPath: inputPath,
 		Platform:  platform,
 		Binary:    binary,
+	}
+
+	handler.siteStateRenderer = &compat.SiteStateRenderer{
+		Platform: platform,
+	}
+
+	handler.siteStateLoader = &common.FileSystemSiteStateLoader{
+		Path:   api.GetInternalOutputPath(namespace, api.InputSiteStatePath),
+		Bundle: false,
 	}
 
 	return handler
@@ -132,12 +145,21 @@ func (h *InputResourceHandler) Filter(name string) bool {
 func (h *InputResourceHandler) OnBasePathAdded(basePath string) {}
 
 func (h *InputResourceHandler) processInputFile() error {
-	siteState, err := h.Bootstrap(&h.ConfigBootstrap)
-	if err != nil {
-		return fmt.Errorf("Failed to bootstrap: %s", err)
+	_, err := os.Stat(api.GetInternalOutputPath(h.namespace, api.RuntimeSiteStatePath))
+	if err == nil {
+		//a site has already been created, no need to bootstrap
+		siteState, err := h.siteStateLoader.Load()
+		if err != nil {
+			return fmt.Errorf("Failed to load site: %s", err)
+		}
+		h.siteStateRenderer.Refresh(siteState)
+	} else {
+		siteState, err := h.Bootstrap(&h.ConfigBootstrap)
+		if err != nil {
+			return fmt.Errorf("Failed to bootstrap: %s", err)
+		}
+		h.PostExec(&h.ConfigBootstrap, siteState)
 	}
-
-	h.PostExec(&h.ConfigBootstrap, siteState)
 
 	return nil
 }

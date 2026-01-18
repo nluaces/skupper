@@ -46,6 +46,8 @@ func (w *NamespaceController) Start() {
 		collectorLifecycleHandler := NewCollectorLifecycleHandler(w.ns)
 		routerStateHandler.SetCallback(collectorLifecycleHandler)
 		inputResourceHandler := NewInputResourceHandler(w.ns, w.pathProvider.GetNamespace(), bootstrap.Bootstrap, bootstrap.PostBootstrap, bootstrap.Teardown)
+		systemAdaptorHandler := NewSystemAdaptorHandler(w.ns)
+		routerStateHandler.SetCallback(systemAdaptorHandler)
 
 		w.watcher.Add(api.GetInternalOutputPath(w.ns, api.RouterConfigPath), routerConfigHandler)
 		w.watcher.Add(api.GetInternalOutputPath(w.ns, api.RuntimeSiteStatePath), NewNetworkStatusHandler(w.ns))
