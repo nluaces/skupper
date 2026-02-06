@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,6 +29,7 @@ type Grants struct {
 	grants     map[kubetypes.UID]*skupperv2alpha1.AccessGrant
 	grantIndex map[string]kubetypes.UID
 	lock       sync.Mutex
+	logger     *slog.Logger
 }
 
 func newGrants(clients internalclient.Clients, generator GrantResponse, scheme string, url string) *Grants {
@@ -39,6 +40,7 @@ func newGrants(clients internalclient.Clients, generator GrantResponse, scheme s
 		url:        url,
 		grants:     map[kubetypes.UID]*skupperv2alpha1.AccessGrant{},
 		grantIndex: map[string]kubetypes.UID{},
+		logger:     slog.New(slog.Default().Handler()).With(slog.String("component", "kube.grants")),
 	}
 }
 
@@ -126,7 +128,7 @@ func (g *Grants) recheckUrl() {
 		if g.checkUrl(key, grant) {
 			grant.SetResolved()
 			if err := g.updateGrantStatus(grant); err != nil {
-				log.Printf("Error updating grant %s after setting url: %s", key, err)
+				g.logger.Error("Error updating grant after setting url", slog.String("key", key), slog.Any("error", err))
 			}
 		}
 	}
@@ -138,7 +140,7 @@ func (g *Grants) recheckCa() {
 		if g.checkCa(key, grant) {
 			grant.SetResolved()
 			if err := g.updateGrantStatus(grant); err != nil {
-				log.Printf("Error updating grant %s after setting ca: %s", key, err)
+				g.logger.Error("Error updating grant after setting ca", slog.String("key", key), slog.Any("error", err))
 			}
 		}
 	}
@@ -156,7 +158,7 @@ func (g *Grants) checkUrl(key string, grant *skupperv2alpha1.AccessGrant) bool {
 	if grant.Status.Url == url {
 		return false
 	}
-	log.Printf("Setting URL for AccessGrant %s to %s", key, url)
+	g.logger.Info("Setting URL for AccessGrant", slog.String("accessGrant", key), slog.String("url", url))
 	grant.Status.Url = url
 	return true
 }
@@ -257,7 +259,7 @@ func (g *Grants) updateGrantStatus(grant *skupperv2alpha1.AccessGrant) error {
 }
 
 func (g *Grants) checkAndUpdateAccessToken(key string, data []byte) (*skupperv2alpha1.AccessGrant, *HttpError) {
-	log.Printf("Checking access token for %s", key)
+	g.logger.Info("Checking access token", slog.String("key", key))
 	grant := g.get(key)
 	if grant == nil {
 		return nil, httpError("No such claim", http.StatusNotFound)
@@ -265,15 +267,18 @@ func (g *Grants) checkAndUpdateAccessToken(key string, data []byte) (*skupperv2a
 
 	expiration, err := time.Parse(time.RFC3339, grant.Status.ExpirationTime)
 	if err != nil {
-		log.Printf("Cannot determine expiration for %s/%s: %s", grant.Namespace, grant.Name, err)
+		g.logger.Error("Cannot determine expiration for grant",
+			slog.String("namespace", grant.Namespace),
+			slog.String("name", grant.Name),
+			slog.Any("error", err))
 		return nil, httpError("Corrupted claim", http.StatusInternalServerError)
 	}
 	if expiration.Before(time.Now()) {
-		log.Printf("AccessGrant %s/%s expired", grant.Namespace, grant.Name)
+		g.logger.Info("AccessGrant expired", slog.String("namespace", grant.Namespace), slog.String("name", grant.Name))
 		return nil, httpError("No such claim", http.StatusNotFound)
 	}
 	if grant.Spec.RedemptionsAllowed <= grant.Status.Redemptions {
-		log.Printf("AccessGrant %s/%s already redeemed", grant.Namespace, grant.Name)
+		g.logger.Info("AccessGrant already redeemed", slog.String("namespace", grant.Namespace), slog.String("name", grant.Name))
 		return nil, httpError("No such access granted", http.StatusNotFound)
 	}
 	if grant.Status.Code != string(data) {
@@ -282,7 +287,10 @@ func (g *Grants) checkAndUpdateAccessToken(key string, data []byte) (*skupperv2a
 	grant.Status.Redemptions += 1
 	err = g.updateGrantStatus(grant)
 	if err != nil {
-		log.Printf("Error updating access grant %s/%s: %s", grant.Namespace, grant.Name, err)
+		g.logger.Error("Error updating access grant",
+			slog.String("namespace", grant.Namespace),
+			slog.String("name", grant.Name),
+			slog.Any("error", err))
 		return nil, httpError("Internal error", http.StatusServiceUnavailable)
 	}
 	return grant, nil
@@ -290,14 +298,14 @@ func (g *Grants) checkAndUpdateAccessToken(key string, data []byte) (*skupperv2a
 
 func (g *Grants) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		log.Printf("Bad method %s for path %s", r.Method, r.URL.Path)
+		g.logger.Error("Bad method for path", slog.String("method", r.Method), slog.String("path", r.URL.Path))
 		http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
 		return
 	}
 	key := strings.Join(strings.Split(r.URL.Path, "/"), "")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Error reading body for path %s: %s", r.URL.Path, err.Error())
+		g.logger.Error("Error reading body for path", slog.String("path", r.URL.Path), slog.Any("error", err))
 		http.Error(w, "Request body not valid", http.StatusBadRequest)
 		return
 	}
@@ -310,7 +318,9 @@ func (g *Grants) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Header.Get("name")
 	if name == "" {
-		log.Printf("No name specified when redeeming access token for %s/%s, using access grant name", grant.Namespace, grant.Name)
+		g.logger.Info("No name specified when redeeming access token using access grant name",
+			slog.String("namespace", grant.Namespace),
+			slog.String("name", grant.Name))
 		name = grant.Name
 	}
 	subject := r.Header.Get("subject")
@@ -318,11 +328,14 @@ func (g *Grants) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		subject = name
 	}
 	if err := g.generator(grant.Namespace, name, subject, w); err != nil {
-		log.Printf("Failed to create token for %s/%s: %s", grant.Namespace, grant.Name, err.Error())
+		g.logger.Error("Failed to create token for grant",
+			slog.String("namespace", grant.Namespace),
+			slog.String("name", grant.Name),
+			slog.Any("error", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("Redemption of access token %s/%s succeeded", grant.Namespace, grant.Name)
+	g.logger.Info("Redemption of access token succeeded", slog.String("namespace", grant.Namespace), slog.String("name", grant.Name))
 }
 
 type HttpError struct {

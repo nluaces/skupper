@@ -3,7 +3,7 @@ package securedaccess
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"strings"
 
@@ -18,6 +18,7 @@ type IngressAccessType struct {
 	manager *SecuredAccessManager
 	nginx   bool // if true add nginx class and nginx specific annotations
 	domain  string
+	logger  *slog.Logger
 }
 
 func newIngressAccess(manager *SecuredAccessManager, nginx bool, domain string) AccessType {
@@ -25,6 +26,7 @@ func newIngressAccess(manager *SecuredAccessManager, nginx bool, domain string) 
 		manager: manager,
 		nginx:   nginx,
 		domain:  domain,
+		logger:  slog.New(slog.Default().Handler()).With(slog.String("component", "kube.securedaccess.ingress")),
 	}
 }
 
@@ -61,9 +63,12 @@ func (o *IngressAccessType) ensureIngress(namespace string, ingress *networkingv
 		if domain == "" {
 			domain = deduceDomainForIngressHosts(existing)
 			if domain == "" {
-				log.Printf("No domain can be inferred yet for ingress %s/%s", namespace, ingress.Name)
+				o.logger.Info("No domain can be inferred yet for ingress", slog.String("namespace", namespace), slog.String("name", ingress.Name))
 			} else if qualifyIngressHosts(domain, ingress) {
-				log.Printf("Updated hosts for ingress %s/%s by appending domain %s", namespace, ingress.Name, domain)
+				o.logger.Info("Updated hosts for ingress by appending domain",
+					slog.String("namespace", namespace),
+					slog.String("name", ingress.Name),
+					slog.String("domain", domain))
 			}
 		}
 		changed := false
@@ -87,15 +92,18 @@ func (o *IngressAccessType) ensureIngress(namespace string, ingress *networkingv
 			}
 		}
 		if !changed {
-			log.Printf("No change to ingress %s/%s is required", namespace, ingress.Name)
+			o.logger.Info("No change to ingress is required", slog.String("namespace", namespace), slog.String("name", ingress.Name))
 			return existing, domain != "", nil
 		}
 		updated, err := o.manager.clients.GetKubeClient().NetworkingV1().Ingresses(namespace).Update(context.Background(), &copy, metav1.UpdateOptions{})
 		if err != nil {
-			log.Printf("Error on update for ingress %s/%s: %s", namespace, ingress.Name, err)
+			o.logger.Error("Error on update for ingress",
+				slog.String("namespace", namespace),
+				slog.String("name", ingress.Name),
+				slog.Any("error", err))
 			return existing, false, err
 		}
-		log.Printf("Ingress %s/%s updated successfully", namespace, ingress.Name)
+		o.logger.Info("Ingress updated successfully", slog.String("namespace", namespace), slog.String("name", ingress.Name))
 		o.manager.ingresses[key] = updated
 		return updated, domain != "", nil
 	}
@@ -105,10 +113,13 @@ func (o *IngressAccessType) ensureIngress(namespace string, ingress *networkingv
 	}
 	created, err := o.manager.clients.GetKubeClient().NetworkingV1().Ingresses(namespace).Create(context.Background(), ingress, metav1.CreateOptions{})
 	if err != nil {
-		log.Printf("Error on create for ingress %s/%s: %s", namespace, ingress.Name, err)
+		o.logger.Error("Error on create for ingress",
+			slog.String("namespace", namespace),
+			slog.String("name", ingress.Name),
+			slog.Any("error", err))
 		return nil, false, err
 	}
-	log.Printf("Ingress %s/%s created successfully", namespace, ingress.Name)
+	o.logger.Info("Ingress created successfully", slog.String("namespace", namespace), slog.String("name", ingress.Name))
 	o.manager.ingresses[key] = created
 	return created, domain != "", nil
 }

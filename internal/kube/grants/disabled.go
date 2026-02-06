@@ -2,7 +2,7 @@ package grants
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -13,6 +13,7 @@ import (
 
 type GrantsDisabled struct {
 	clients internalclient.Clients
+	logger  *slog.Logger
 }
 
 func (s *GrantsDisabled) markGrantNotEnabled(key string, grant *skupperv2alpha1.AccessGrant) error {
@@ -20,7 +21,7 @@ func (s *GrantsDisabled) markGrantNotEnabled(key string, grant *skupperv2alpha1.
 		return nil
 	}
 	if _, err := s.clients.GetSkupperClient().SkupperV2alpha1().AccessGrants(grant.ObjectMeta.Namespace).UpdateStatus(context.TODO(), grant, metav1.UpdateOptions{}); err != nil {
-		log.Printf("AccessGrants are not enabled. Error updating status for %s: %s", key, err)
+		s.logger.Error("AccessGrants are not enabled. Error updating status", slog.String("key", key), slog.Any("error", err))
 	}
 	return nil
 }
@@ -28,6 +29,7 @@ func (s *GrantsDisabled) markGrantNotEnabled(key string, grant *skupperv2alpha1.
 func disabled(eventProcessor *watchers.EventProcessor, watchNamespace string) *GrantsDisabled {
 	mgr := &GrantsDisabled{
 		clients: eventProcessor,
+		logger:  slog.New(slog.Default().Handler()).With(slog.String("component", "kube.grants.disabled")),
 	}
 	eventProcessor.WatchAccessGrants(watchNamespace, mgr.markGrantNotEnabled)
 	return mgr

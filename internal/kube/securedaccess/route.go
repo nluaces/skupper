@@ -3,7 +3,7 @@ package securedaccess
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,11 +19,13 @@ var routeWeight100 int32 = 100
 
 type RouteAccessType struct {
 	manager *SecuredAccessManager
+	logger  *slog.Logger
 }
 
 func newRouteAccess(m *SecuredAccessManager) AccessType {
 	return &RouteAccessType{
 		manager: m,
+		logger:  slog.New(slog.Default().Handler()).With(slog.String("component", "kube.securedaccess.routeAccessType")),
 	}
 }
 
@@ -74,7 +76,10 @@ func (o *RouteAccessType) ensureRoute(namespace string, route *routev1.Route) (e
 		}
 		updated, err := o.manager.clients.GetRouteClient().Routes(namespace).Update(context.Background(), &copy, metav1.UpdateOptions{})
 		if err != nil {
-			log.Printf("Error on update for route %s/%s: %s", namespace, route.Name, err)
+			o.logger.Error("Error on update for route",
+				slog.String("namespace", namespace),
+				slog.String("name", route.Name),
+				slog.Any("error", err))
 			return err, nil
 		}
 		o.manager.routes[key] = updated
@@ -86,10 +91,13 @@ func (o *RouteAccessType) ensureRoute(namespace string, route *routev1.Route) (e
 	}
 	created, err := o.manager.clients.GetRouteClient().Routes(namespace).Create(context.Background(), route, metav1.CreateOptions{})
 	if err != nil {
-		log.Printf("Error on create for route %s/%s: %s", namespace, route.Name, err)
+		o.logger.Error("Error on create for route",
+			slog.String("namespace", namespace),
+			slog.String("name", route.Name),
+			slog.Any("error", err))
 		return err, nil
 	}
-	log.Printf("Route %s/%s created successfully", namespace, route.Name)
+	o.logger.Info("Route created successfully", slog.String("namespace", namespace), slog.String("name", route.Name))
 	o.manager.routes[key] = created
 	return nil, created
 }

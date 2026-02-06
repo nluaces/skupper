@@ -2,7 +2,7 @@ package grants
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -15,6 +15,7 @@ type NamespaceFilter func(string) bool
 func enabled(controller *watchers.EventProcessor, currentNamespace string, watchNamespace string, config *GrantConfig, generator GrantResponse, filter NamespaceFilter) *GrantsEnabled {
 	gc := &GrantsEnabled{
 		grants: newGrants(controller, generator, config.scheme(), config.BaseUrl),
+		logger: slog.New(slog.Default().Handler()).With(slog.String("component", "kube.grants.enabled")),
 	}
 	gc.server = newServer(config.addr(), config.tlsEnabled(), gc.grants)
 
@@ -24,7 +25,7 @@ func enabled(controller *watchers.EventProcessor, currentNamespace string, watch
 	if config.AutoConfigure {
 		ac, err := newAutoConfigure(gc.securedAccessChanged, controller, currentNamespace, config)
 		if err != nil {
-			log.Printf("Auto configuration of grant server failed: %s", err)
+			gc.logger.Error("Auto configuration of grant server failed", slog.Any("error", err))
 		}
 		gc.autoConfigure = ac
 	}
@@ -39,6 +40,7 @@ type GrantsEnabled struct {
 	autoConfigure *AutoConfigure
 	started       bool
 	filter        NamespaceFilter
+	logger        *slog.Logger
 }
 
 func (c *GrantsEnabled) Start() {
@@ -74,7 +76,7 @@ func (s *GrantsEnabled) securedAccessChanged(key string, se *skupperv2alpha1.Sec
 		}
 		if !s.started {
 			s.started = true
-			log.Print("Starting grant server")
+			s.logger.Info("Starting grant server")
 			s.server.start()
 		}
 	}
@@ -86,12 +88,12 @@ func (s *GrantsEnabled) tlsCredentialsUpdated(key string, secret *corev1.Secret)
 		return nil
 	}
 	if err := s.server.setCertificateFromSecret(secret); err != nil {
-		log.Printf("Could not set certificate from grant server from %s: %s", key, err)
+		s.logger.Info("Could not set certificate from grant server", slog.String("key", key), slog.Any("error", err))
 		return nil
 	}
 	if s.grants.setCA(string(secret.Data["ca.crt"])) {
 		s.grants.recheckCa()
 	}
-	log.Print("Grant server tls credentials updated")
+	s.logger.Info("Grant server tls credentials updated")
 	return nil
 }

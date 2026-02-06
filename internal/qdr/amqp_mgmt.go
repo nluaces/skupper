@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"slices"
 	"strconv"
@@ -44,6 +44,7 @@ type Agent struct {
 	receiver   *amqp.Receiver
 	local      *Router
 	closed     bool
+	logger     *slog.Logger
 }
 
 type Router struct {
@@ -65,7 +66,7 @@ func GetSiteMetadata(metadata string) SiteMetadata {
 	result := SiteMetadata{}
 	err := json.Unmarshal([]byte(metadata), &result)
 	if err != nil {
-		log.Printf("Assuming old format for router metadata %s: %s", metadata, err)
+		slog.Warn("Assuming old format for router metadata", slog.String("metadata", metadata), slog.Any("error", err))
 		// assume old format, where metadata just holds site id
 		result.Id = metadata
 	}
@@ -271,6 +272,7 @@ func newAgent(factory *ConnectionFactory) (*Agent, error) {
 		sender:     sender,
 		anonymous:  anonymous,
 		receiver:   receiver,
+		logger:     slog.New(slog.Default().Handler()).With(slog.String("component", "qdr.agent")),
 	}
 	a.local, err = a.GetLocalRouter()
 	if err != nil {
@@ -382,13 +384,21 @@ func (a *Agent) request(operation string, typename string, name string, attribut
 
 func (a *Agent) Create(typename string, name string, entity recordType) error {
 	attributes := entity.toRecord()
-	log.Println("CREATE", typename, name, attributes)
+	a.logger.Info("Management request",
+		slog.String("action", "CREATE"),
+		slog.String("typename", typename),
+		slog.String("name", name),
+		slog.Any("attributes", attributes))
 	return a.request("CREATE", typename, name, attributes)
 }
 
 func (a *Agent) Update(typename string, name string, entity recordType) error {
 	attributes := entity.toRecord()
-	log.Println("UPDATE", typename, name, attributes)
+	a.logger.Info("Management request",
+		slog.String("action", "UPDATE"),
+		slog.String("typename", typename),
+		slog.String("name", name),
+		slog.Any("attributes", attributes))
 	return a.request("UPDATE", typename, name, attributes)
 }
 
@@ -396,7 +406,10 @@ func (a *Agent) Delete(typename string, name string) error {
 	if name == "" {
 		return fmt.Errorf("Cannot delete entity of type %s with no name", typename)
 	}
-	log.Println("DELETE", typename, name)
+	a.logger.Info("Management request",
+		slog.String("action", "DELETE"),
+		slog.String("typename", typename),
+		slog.String("name", name))
 	return a.request("DELETE", typename, name, nil)
 }
 

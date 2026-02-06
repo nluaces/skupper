@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +50,7 @@ type GatewayAccessType struct {
 	controllerName   string
 	controllerUID    string
 	unreconciled     map[string]*skupperv2alpha1.SecuredAccess
+	logger           *slog.Logger
 }
 
 func newGatewayAccess(manager *SecuredAccessManager, class string, domain string, port int, context ControllerContext) (AccessType, func() error, error) {
@@ -59,6 +60,7 @@ func newGatewayAccess(manager *SecuredAccessManager, class string, domain string
 		domain:       domain,
 		port:         port,
 		unreconciled: map[string]*skupperv2alpha1.SecuredAccess{},
+		logger:       slog.New(slog.Default().Handler()).With(slog.String("component", "kube.securedaccess.gatewayAccessType")),
 	}
 	if context != nil {
 		at.gatewayNamespace = context.Namespace()
@@ -96,7 +98,7 @@ func (o *GatewayAccessType) init() error {
 			o.domain = domain //TODO: or keep configured v deduced domain separate?
 			o.processUnreconciled()
 		} else {
-			log.Printf("Could not determine base domain for gateway %s/%s", gateway.GetNamespace(), gateway.GetName())
+			o.logger.Error("Could not determine base domain for gateway", slog.String("namespace", gateway.GetNamespace()), slog.String("name", gateway.GetName()))
 		}
 	}
 	return nil

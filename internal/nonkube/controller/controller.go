@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"path"
 	"sync"
@@ -16,24 +16,28 @@ const (
 
 type Controller struct {
 	nsHandler *NamespacesHandler
+	logger    *slog.Logger
 }
 
 func NewController() (*Controller, error) {
 	var err error
-	c := &Controller{}
+	c := &Controller{
+		logger: slog.New(slog.Default().Handler()).With(slog.String("component", "nonkube.controller")),
+	}
 	c.nsHandler, err = NewNamespacesHandler()
 	return c, err
 }
 
 func (c *Controller) Start() (chan struct{}, *sync.WaitGroup) {
-	log.Println("Starting controller")
+	c.logger.Info("Starting controller")
 	wg := &sync.WaitGroup{}
 	stop := make(chan struct{})
 	c.ensureSingleInstance(stop)
 	if err := c.nsHandler.Start(stop, wg); err != nil {
-		log.Fatalf("error starting controller: %v", err)
+		c.logger.Error("error starting controller", slog.Any("error", err))
+		os.Exit(1)
 	}
-	log.Println("Controller started")
+	c.logger.Info("Controller started")
 	return stop, wg
 }
 
@@ -41,15 +45,18 @@ func (c *Controller) ensureSingleInstance(stop chan struct{}) {
 	internalLockFile := path.Join(api.GetDefaultOutputNamespacesPath(), lockFileName)
 	lock, err := os.OpenFile(internalLockFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
-		log.Fatalf("Unable to create lock file: %v", err)
+		c.logger.Error("Unable to create lock file", slog.Any("error", err))
+		os.Exit(1)
 	}
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		log.Fatalf("System controller is already running, exiting")
+		c.logger.Error("System controller is already running, exiting")
+		os.Exit(1)
 	}
 	go func() {
 		<-stop
 		if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-			log.Fatalf("Error releasing lock file: %v", err)
+			c.logger.Error("Error releasing lock file", slog.Any("error", err))
+			os.Exit(1)
 		}
 	}()
 }

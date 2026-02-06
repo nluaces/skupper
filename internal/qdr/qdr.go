@@ -3,7 +3,7 @@ package qdr
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	path_ "path"
 	"reflect"
@@ -922,6 +922,7 @@ type BridgeConfigDifference struct {
 	TcpConnectors      TcpEndpointDifference
 	AddedSslProfiles   []string
 	DeletedSSlProfiles []string
+	logger             *slog.Logger
 }
 
 func isAddrAny(host string) bool {
@@ -990,6 +991,7 @@ func (a TcpEndpointMap) Difference(b TcpEndpointMap) TcpEndpointDifference {
 
 func (a *BridgeConfig) Difference(b *BridgeConfig) *BridgeConfigDifference {
 	result := BridgeConfigDifference{
+		logger:        slog.New(slog.Default().Handler()).With("component", "qdr.bridgeConfigDifference"),
 		TcpConnectors: a.TcpConnectors.Difference(b.TcpConnectors),
 		TcpListeners:  a.TcpListeners.Difference(b.TcpListeners),
 	}
@@ -1057,9 +1059,9 @@ func (a *BridgeConfigDifference) Empty() bool {
 }
 
 func (a *BridgeConfigDifference) Print() {
-	log.Printf("TcpConnectors added=%v, deleted=%v", a.TcpConnectors.Added, a.TcpConnectors.Deleted)
-	log.Printf("TcpListeners added=%v, deleted=%v", a.TcpListeners.Added, a.TcpListeners.Deleted)
-	log.Printf("SslProfiles added=%v, deleted=%v", a.AddedSslProfiles, a.DeletedSSlProfiles)
+	a.logger.Info("TcpConnectors", slog.Any("added", a.TcpConnectors.Added), slog.Any("deleted", a.TcpConnectors.Deleted))
+	a.logger.Info("TcpListeners", slog.Any("added", a.TcpListeners.Added), slog.Any("deleted", a.TcpListeners.Deleted))
+	a.logger.Info("SslProfiles", slog.Any("added", a.AddedSslProfiles), slog.Any("deleted", a.DeletedSSlProfiles))
 }
 
 func ConnectorsDifference(actual map[string]Connector, desired *RouterConfig, ignorePrefix *string) *ConnectorDifference {
@@ -1139,7 +1141,7 @@ func ListenersDifference(actual map[string]Listener, desired map[string]Listener
 	for key, desiredValue := range desired {
 		if actualValue, ok := actual[key]; ok {
 			if !desiredValue.Equivalent(actualValue) {
-				log.Printf("Listener definition does not match. Have %v want %v", actualValue, desiredValue)
+				slog.Info("Listener definition does not match", slog.Any("actual", actualValue), slog.Any("desired", desiredValue))
 				// handle change as delete then add, so it also works over management protocol
 				result.Deleted = append(result.Deleted, desiredValue)
 				result.Added = append(result.Added, desiredValue)

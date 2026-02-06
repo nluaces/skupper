@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -40,12 +40,14 @@ func NewServer(cfg *Config, registry *prometheus.Registry) *Server {
 	return &Server{
 		config: *cfg,
 		server: srv,
+		logger: slog.New(slog.Default().Handler()).With(slog.String("component", "kube.metrics.server")),
 	}
 }
 
 type Server struct {
 	config Config
 	server *http.Server
+	logger *slog.Logger
 }
 
 func (s *Server) Start(stopCh <-chan struct{}) error {
@@ -66,9 +68,9 @@ func (s *Server) Start(stopCh <-chan struct{}) error {
 	}
 	go func() {
 		if err := s.server.Serve(ln); err != nil {
-			log.Printf("metrics server error: %s", err)
+			s.logger.Error("metrics server error", slog.Any("error", err))
 		}
 	}()
-	log.Printf("Started metrics server at: %s", s.config.Address)
+	s.logger.Info("Started metrics server", slog.String("address", s.config.Address))
 	return nil
 }
