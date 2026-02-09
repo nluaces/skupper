@@ -47,6 +47,8 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 		inputPath: inputPath,
 	}
 
+	handler.logger = slog.Default().With("component", "input.resource.handler", "namespace", namespace)
+
 	handler.Bootstrap = bs
 	handler.PostExec = pbs
 	handler.TearDown = td
@@ -63,10 +65,10 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 	case common.PlatformPodman:
 		binary = "podman"
 	case common.PlatformLinux:
-		slog.Default().Error("Linux platform is not supported yet")
+		handler.logger.Error("Linux platform is not supported yet")
 		return nil
 	default:
-		slog.Default().Error("This platform value is not supported: ", slog.String("platform", string(platform)))
+		handler.logger.Error("This platform value is not supported: ", slog.String("platform", string(platform)))
 		return nil
 	}
 
@@ -77,7 +79,6 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 		Binary:    binary,
 	}
 
-	handler.logger = slog.Default().With("component", "input.resource.handler", "namespace", namespace)
 	return handler
 }
 
