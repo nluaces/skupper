@@ -28,7 +28,11 @@ type InputResourceHandler struct {
 	lock            sync.Mutex
 }
 
-func NewInputResourceHandler(namespace string, inputPath string, bStrap func(config *bootstrap.Config) (*api.SiteState, error), postBootStrap func(config *bootstrap.Config, siteState *api.SiteState), tearDown func(namespace string, platform string) error) *InputResourceHandler {
+type Bootstrap func(config *bootstrap.Config) (*api.SiteState, error)
+type PostBootstrap func(config *bootstrap.Config, siteState *api.SiteState)
+type TearDown func(namespace string, platform string) error
+
+func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, pbs PostBootstrap, td TearDown) *InputResourceHandler {
 
 	systemReloadType := utils.DefaultStr(os.Getenv(types.ENV_SYSTEM_AUTO_RELOAD),
 		types.SystemReloadTypeManual)
@@ -43,9 +47,9 @@ func NewInputResourceHandler(namespace string, inputPath string, bStrap func(con
 		inputPath: inputPath,
 	}
 
-	handler.Bootstrap = bStrap
-	handler.PostExec = postBootStrap
-	handler.TearDown = tearDown
+	handler.Bootstrap = bs
+	handler.PostExec = pbs
+	handler.TearDown = td
 
 	var binary string
 
