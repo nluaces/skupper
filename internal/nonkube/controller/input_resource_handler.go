@@ -11,8 +11,8 @@ import (
 	cmd "github.com/skupperproject/skupper/internal/cmd/skupper/common"
 	"github.com/skupperproject/skupper/internal/nonkube/bootstrap"
 	"github.com/skupperproject/skupper/internal/nonkube/common"
-	"github.com/skupperproject/skupper/internal/nonkube/compat"
 	common2 "github.com/skupperproject/skupper/internal/nonkube/common"
+	"github.com/skupperproject/skupper/internal/nonkube/compat"
 	"github.com/skupperproject/skupper/internal/utils"
 	"github.com/skupperproject/skupper/pkg/nonkube/api"
 )
@@ -20,14 +20,14 @@ import (
 // This feature is responsible for handling the creation of input resources and
 // execute the start/reload of the site configuration automatically.
 type InputResourceHandler struct {
-	logger          *slog.Logger
-	namespace       string
-	inputPath       string
-	Bootstrap       func(config *bootstrap.Config) (*api.SiteState, error)
-	PostExec        func(config *bootstrap.Config, siteState *api.SiteState)
-	TearDown        func(namespace string) error
-	ConfigBootstrap bootstrap.Config
-	lock            sync.Mutex
+	logger            *slog.Logger
+	namespace         string
+	inputPath         string
+	Bootstrap         func(config *bootstrap.Config) (*api.SiteState, error)
+	PostExec          func(config *bootstrap.Config, siteState *api.SiteState)
+	TearDown          func(namespace string) error
+	ConfigBootstrap   bootstrap.Config
+	lock              sync.Mutex
 	siteStateRenderer *compat.SiteStateRenderer
 	siteStateLoader   api.SiteStateLoader
 }
