@@ -83,21 +83,27 @@ func CreateRouterAccess(siteState *api.SiteState) error {
 	return nil
 }
 
-func UpdateRouterAccess(siteState *api.SiteState, config *qdr.RouterConfig) error {
+func RecoverRouterAccess(siteState *api.SiteState, config *qdr.RouterConfig) error {
 	if !siteState.HasRouterAccess() {
 		logger := NewLogger()
-		logger.Debug("Updating skupper-local RouterAccess")
+		logger.Debug("Recovering skupper-local RouterAccess")
 		name := fmt.Sprintf("skupper-local")
 		if config == nil {
-			return fmt.Errorf("skupper-local RouterAccess cannot be created without a router config")
+			return fmt.Errorf("skupper-local RouterAccess cannot be recovered without a router config")
 		}
 
 		if config.Listeners == nil {
-			return fmt.Errorf("skupper-local RouterAccess cannot be updated without listeners")
+			return fmt.Errorf("skupper-local RouterAccess cannot be recovered without listeners")
 		}
 
-		port := config.Listeners["skupper-local-normal"].Port
-		siteState.CreateRouterAccess(name, int(port))
+		var port int
+		if _, ok := config.Listeners["skupper-local-normal"]; ok {
+			port = int(config.Listeners["skupper-local-normal"].Port)
+			siteState.CreateRouterAccess(name, port)
+		} else {
+			return fmt.Errorf("skupper-local-normal listener does not exists in the router config.")
+		}
+
 	}
 	return nil
 }

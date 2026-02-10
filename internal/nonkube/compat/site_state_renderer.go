@@ -393,7 +393,7 @@ func (s *SiteStateRenderer) Refresh(loadedSiteState *api.SiteState) error {
 	s.siteState = common.CopySiteState(s.loadedSiteState)
 	routerConfig, err := common.LoadRouterConfig(s.siteState.GetNamespace())
 
-	err = common.UpdateRouterAccess(s.siteState, routerConfig)
+	err = common.RecoverRouterAccess(s.siteState, routerConfig)
 	if err != nil {
 		return err
 	}
