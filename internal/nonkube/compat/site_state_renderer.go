@@ -39,20 +39,10 @@ func (s *SiteStateRenderer) Render(loadedSiteState *api.SiteState, reload bool) 
 	s.loadedSiteState = loadedSiteState
 	endpoint := os.Getenv("CONTAINER_ENDPOINT")
 
-	// the container endpoint is mapped to the podman socket inside the container
-	if api.IsRunningInContainer() {
-		endpoint = "unix:///var/run/podman.sock"
-		if s.Platform == "docker" {
-			endpoint = "unix:///var/run/docker.sock"
-		}
-	} else {
-		if endpoint == "" {
-			endpoint = fmt.Sprintf("unix://%s/podman/podman.sock", api.GetRuntimeDir())
-			if s.Platform == "docker" {
-				endpoint = "unix:///run/docker.sock"
-			}
-		}
+	if api.IsRunningInContainer() || endpoint == "" {
+		endpoint = internalclient.GetDefaultContainerEndpoint()
 	}
+
 	s.cli, err = internalclient.NewCompatClient(endpoint, "")
 	if err != nil {
 		return fmt.Errorf("failed to create container client: %v", err)
