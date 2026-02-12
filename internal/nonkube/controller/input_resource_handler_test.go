@@ -148,4 +148,4 @@ func mockBootstrapFailed(config *bootstrap.Config) (*api.SiteState, error) {
 	return nil, fmt.Errorf("failed to bootstrap")
 }
 
-func mockTearDown(namespace string, platform string) error { return nil }
+func mockTearDown(namespace string) error { return nil }

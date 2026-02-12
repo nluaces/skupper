@@ -22,7 +22,21 @@ func Teardown(namespace string) error {
 	if err != nil {
 		return err
 	}
-	return RemoveAll(namespace, platform)
+
+	if err := removeRouter(namespace, platform); err != nil {
+		return err
+	}
+
+	if err := removeService(namespace, platform); err != nil {
+		return err
+	}
+
+	if err := removeDefinition(namespace); err != nil {
+		return err
+	}
+
+	fmt.Printf("Namespace \"%s\" has been removed\n", namespace)
+	return nil
 
 }
 
@@ -85,23 +99,4 @@ func removeService(namespace string, platform string) error {
 	}
 
 	return nil
-}
-
-func RemoveAll(namespace string, platform string) error {
-
-	if err := removeRouter(namespace, platform); err != nil {
-		return err
-	}
-
-	if err := removeService(namespace, platform); err != nil {
-		return err
-	}
-
-	if err := removeDefinition(namespace); err != nil {
-		return err
-	}
-
-	fmt.Printf("Namespace \"%s\" has been removed\n", namespace)
-	return nil
-
 }

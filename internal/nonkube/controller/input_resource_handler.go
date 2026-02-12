@@ -23,14 +23,14 @@ type InputResourceHandler struct {
 	inputPath       string
 	Bootstrap       func(config *bootstrap.Config) (*api.SiteState, error)
 	PostExec        func(config *bootstrap.Config, siteState *api.SiteState)
-	TearDown        func(namespace string, platform string) error
+	TearDown        func(namespace string) error
 	ConfigBootstrap bootstrap.Config
 	lock            sync.Mutex
 }
 
 type Bootstrap func(config *bootstrap.Config) (*api.SiteState, error)
 type PostBootstrap func(config *bootstrap.Config, siteState *api.SiteState)
-type TearDown func(namespace string, platform string) error
+type TearDown func(namespace string) error
 
 func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, pbs PostBootstrap, td TearDown) *InputResourceHandler {
 
@@ -144,7 +144,7 @@ func (h *InputResourceHandler) processInputFile() error {
 
 func (h *InputResourceHandler) tearDownNamespace() error {
 	h.logger.Info("No site configured, tearing down namespace")
-	err := h.TearDown(h.namespace, string(h.ConfigBootstrap.Platform))
+	err := h.TearDown(h.namespace)
 	if err != nil {
 		return err
 	}
