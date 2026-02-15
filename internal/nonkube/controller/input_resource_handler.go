@@ -10,8 +10,8 @@ import (
 	"github.com/skupperproject/skupper/api/types"
 	cmd "github.com/skupperproject/skupper/internal/cmd/skupper/common"
 	"github.com/skupperproject/skupper/internal/nonkube/bootstrap"
+	"github.com/skupperproject/skupper/internal/nonkube/client/fs"
 	"github.com/skupperproject/skupper/internal/nonkube/common"
-	common2 "github.com/skupperproject/skupper/internal/nonkube/common"
 	"github.com/skupperproject/skupper/internal/nonkube/compat"
 	"github.com/skupperproject/skupper/internal/utils"
 	"github.com/skupperproject/skupper/pkg/nonkube/api"
@@ -30,6 +30,7 @@ type InputResourceHandler struct {
 	lock              sync.Mutex
 	siteStateRenderer *compat.SiteStateRenderer
 	siteStateLoader   api.SiteStateLoader
+	siteHandler       *fs.SiteHandler
 }
 
 type Bootstrap func(config *bootstrap.Config) (*api.SiteState, error)
@@ -92,6 +93,8 @@ func NewInputResourceHandler(namespace string, inputPath string, bs Bootstrap, p
 		Bundle: false,
 	}
 
+	handler.siteHandler = fs.NewSiteHandler(namespace)
+
 	return handler
 }
 
@@ -118,14 +121,13 @@ func (h *InputResourceHandler) OnRemove(name string) {
 
 	h.logger.Info(fmt.Sprintf("Resource has been deleted: %s", name))
 
-	siteStateLoader := &common2.FileSystemSiteStateLoader{
-		Path:   h.ConfigBootstrap.InputPath,
-		Bundle: h.ConfigBootstrap.IsBundle,
+	sites, err := h.siteHandler.List(fs.GetOptions{InputOnly: true})
+	if err != nil {
+		h.logger.Error(err.Error())
 	}
-	siteState, err := siteStateLoader.Load()
 
-	//If there is no site configured, the namespace needs to be removed
-	if err != nil || siteState == nil || siteState.Site == nil {
+	//If there is no site configured or running, the namespace needs to be removed
+	if err != nil || len(sites) == 0 {
 		err = h.tearDownNamespace()
 		if err != nil {
 			h.logger.Error(err.Error())
@@ -145,26 +147,51 @@ func (h *InputResourceHandler) Filter(name string) bool {
 func (h *InputResourceHandler) OnBasePathAdded(basePath string) {}
 
 func (h *InputResourceHandler) processInputFile() error {
-	_, err := os.Stat(api.GetInternalOutputPath(h.namespace, api.RuntimeSiteStatePath))
-	if err == nil {
-		//a site has already been created, no need to bootstrap
-		siteState, err := h.siteStateLoader.Load()
-		if err != nil {
-			return fmt.Errorf("Failed to load site: %s", err)
-		}
-		if siteState != nil && !siteState.IsBundle() {
-			err := h.siteStateRenderer.Refresh(siteState)
-			if err != nil {
-				return fmt.Errorf("Failed to refresh site state: %s", err)
-			}
-		}
+	needsBootstrap := false
+	var siteState *api.SiteState
+	var inputSiteNames []string
+	var runtimeSiteNames []string
 
+	inputSites, err := h.siteHandler.List(fs.GetOptions{InputOnly: true})
+	if err != nil {
+		h.logger.Debug("Trying to list input sites:", slog.Any("error", err))
+	}
+	for _, site := range inputSites {
+		inputSiteNames = append(inputSiteNames, site.Name)
+	}
+
+	runtimeSites, err := h.siteHandler.List(fs.GetOptions{RuntimeOnly: true})
+	if err != nil {
+		h.logger.Debug("Trying to list runtime sites:", slog.Any("error", err))
+	}
+	for _, site := range runtimeSites {
+		runtimeSiteNames = append(runtimeSiteNames, site.Name)
+	}
+
+	inputSitesMatchRuntimeSites := utils.StringSlicesEqual(inputSiteNames, runtimeSiteNames)
+
+	if !inputSitesMatchRuntimeSites {
+		needsBootstrap = true
 	} else {
-		siteState, err := h.Bootstrap(&h.ConfigBootstrap)
+		siteState, err = h.siteStateLoader.Load()
+		if err != nil || siteState == nil {
+			needsBootstrap = true
+		}
+	}
+
+	if needsBootstrap {
+		siteState, err = h.Bootstrap(&h.ConfigBootstrap)
 		if err != nil {
 			return fmt.Errorf("Failed to bootstrap: %s", err)
 		}
 		h.PostExec(&h.ConfigBootstrap, siteState)
+		return nil
+	}
+	if siteState != nil && !siteState.IsBundle() {
+		err = h.siteStateRenderer.Refresh(siteState)
+		if err != nil {
+			return fmt.Errorf("Failed to refresh site state: %s", err)
+		}
 	}
 
 	return nil
