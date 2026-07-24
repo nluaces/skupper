@@ -21,21 +21,12 @@ func TestCmdSystemNetworkObserverValidateInput(t *testing.T) {
 			expectedError: []string{"this command does not accept arguments"},
 		},
 		{
-			name: "rejects credentials with uninstall",
-			flags: &common.CommandNetworkObserverFlags{
-				Uninstall: true,
-				Password:  "password",
-			},
-			expectedError: []string{
-				"--password cannot be used with --uninstall",
-			},
+			name:  "accepts no arguments",
+			flags: &common.CommandNetworkObserverFlags{},
 		},
 		{
-			name: "allows install credentials",
-			flags: &common.CommandNetworkObserverFlags{
-				Username: "user",
-				Password: "password",
-			},
+			name:  "accepts uninstall flag",
+			flags: &common.CommandNetworkObserverFlags{Uninstall: true},
 		},
 	}
 
@@ -105,51 +96,6 @@ func TestCmdSystemNetworkObserverNewClient(t *testing.T) {
 
 			if cmd.namespace != test.expectedNamespace {
 				t.Fatalf("expected namespace %q, got %q", test.expectedNamespace, cmd.namespace)
-			}
-		})
-	}
-}
-
-func TestCmdSystemNetworkObserverInputToOptions(t *testing.T) {
-	tests := []struct {
-		name             string
-		flags            *common.CommandNetworkObserverFlags
-		initialUser      string
-		initialPassword  string
-		expectedUser     string
-		expectedPassword string
-	}{
-		{
-			name:             "copies credentials from flags",
-			flags:            &common.CommandNetworkObserverFlags{Username: "user", Password: "password"},
-			expectedUser:     "user",
-			expectedPassword: "password",
-		},
-		{
-			name:             "leaves existing values when flags are empty",
-			flags:            &common.CommandNetworkObserverFlags{},
-			initialUser:      "existing-user",
-			initialPassword:  "existing-password",
-			expectedUser:     "existing-user",
-			expectedPassword: "existing-password",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cmd := &CmdSystemNetworkObserver{
-				Flags:    test.flags,
-				user:     test.initialUser,
-				password: test.initialPassword,
-			}
-
-			cmd.InputToOptions()
-
-			if cmd.user != test.expectedUser {
-				t.Fatalf("expected user %q, got %q", test.expectedUser, cmd.user)
-			}
-			if cmd.password != test.expectedPassword {
-				t.Fatalf("expected password %q, got %q", test.expectedPassword, cmd.password)
 			}
 		})
 	}

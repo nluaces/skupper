@@ -72,8 +72,6 @@ func TestCmdSystemFactory(t *testing.T) {
 		{
 			name: "CmdSystemNetworkObserverFactory",
 			expectedFlagsWithDefaultValue: map[string]interface{}{
-				common.FlagNameNetworkObserverUsername:  "skupper",
-				common.FlagNameNetworkObserverPassword:  "",
 				common.FlagNameNetworkObserverUninstall: "false",
 			},
 			command: CmdSystemNetworkObserverFactory(common.PlatformDocker),

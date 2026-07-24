@@ -145,16 +145,6 @@ func GetPrometheusImageName() string {
 	return GetPrometheusServerImageName()
 }
 
-func GetNginxImageName() string {
-	image := os.Getenv(NginxImageEnvKey)
-	if image == "" {
-		imageRegistry := GetNginxImageRegistry()
-		return strings.Join([]string{imageRegistry, NginxImageName}, "/")
-	} else {
-		return image
-	}
-}
-
 func GetSystemControllerImageName() string {
 	image := os.Getenv(SystemControllerImageEnvKey)
 	if image == "" {
@@ -177,14 +167,6 @@ func GetPrometheusImageRegistry() string {
 	imageRegistry := os.Getenv(PrometheusImageRegistryEnvKey)
 	if imageRegistry == "" {
 		return PrometheusImageRegistry
-	}
-	return imageRegistry
-}
-
-func GetNginxImageRegistry() string {
-	imageRegistry := os.Getenv(NginxImageRegistryEnvKey)
-	if imageRegistry == "" {
-		return NginxImageRegistry
 	}
 	return imageRegistry
 }

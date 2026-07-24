@@ -17,7 +17,7 @@ func GetNetworkObserverContainer(namespace string, p ports) container.Container 
 		Name:  fmt.Sprintf("%s-skupper-network-observer", namespace),
 		Image: images.GetNetworkObserverImageName(),
 		Command: []string{
-			fmt.Sprintf("-listen=127.0.0.1:%d", p.netobs),
+			fmt.Sprintf("-listen=:%d", p.netobs),
 			fmt.Sprintf("-prometheus-api=http://127.0.0.1:%d", p.prometheus),
 			fmt.Sprintf("-router-endpoint=%s", p.router),
 			"-router-tls-ca=/etc/messaging/ca.crt",
@@ -69,42 +69,6 @@ func GetPrometheusContainer(namespace string, p ports) container.Container {
 			{
 				Source:      dataPath,
 				Destination: "/prometheus",
-				Options:     []string{"z"},
-			},
-		},
-		Networks:      map[string]container.ContainerNetworkInfo{},
-		RestartPolicy: "always",
-	}
-}
-
-func GetNginxContainer(namespace string) container.Container {
-	namespacePath := api.GetHostNamespaceHome(namespace)
-	nginxConfDir := filepath.Join(namespacePath, "network-observer", "nginx", "conf.d")
-	htpasswdDir := filepath.Join(namespacePath, "network-observer", "htpasswd")
-	certsPath := filepath.Join(namespacePath, "network-observer", "certs")
-
-	return container.Container{
-		Name:  fmt.Sprintf("%s-skupper-nginx", namespace),
-		Image: images.GetNginxImageName(),
-		Env:   map[string]string{},
-		Labels: map[string]string{
-			"application":             "skupper-v2",
-			"skupper.io/v2-component": "nginx-proxy",
-		},
-		FileMounts: []container.FileMount{
-			{
-				Source:      nginxConfDir,
-				Destination: "/etc/nginx/conf.d",
-				Options:     []string{"z"},
-			},
-			{
-				Source:      certsPath,
-				Destination: "/etc/certificates",
-				Options:     []string{"z"},
-			},
-			{
-				Source:      htpasswdDir,
-				Destination: "/etc/httpusers",
 				Options:     []string{"z"},
 			},
 		},

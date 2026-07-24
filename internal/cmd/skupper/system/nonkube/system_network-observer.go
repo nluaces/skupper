@@ -13,8 +13,6 @@ type CmdSystemNetworkObserver struct {
 	CobraCmd  *cobra.Command
 	Flags     *common.CommandNetworkObserverFlags
 	namespace string
-	user      string
-	password  string
 }
 
 func NewCmdSystemNetworkObserver() *CmdSystemNetworkObserver {
@@ -37,29 +35,13 @@ func (cmd *CmdSystemNetworkObserver) ValidateInput(args []string) error {
 		validationErrors = append(validationErrors, fmt.Errorf("this command does not accept arguments"))
 	}
 
-	if cmd.Flags != nil && cmd.Flags.Uninstall {
-		if cmd.Flags.Password != "" {
-			validationErrors = append(validationErrors, fmt.Errorf("--%s cannot be used with --%s", common.FlagNameNetworkObserverPassword, common.FlagNameNetworkObserverUninstall))
-		}
-	}
-
 	return errors.Join(validationErrors...)
 }
 
-func (cmd *CmdSystemNetworkObserver) InputToOptions() {
-
-	if cmd.Flags.Username != "" {
-		cmd.user = cmd.Flags.Username
-	}
-
-	if cmd.Flags.Password != "" {
-		cmd.password = cmd.Flags.Password
-	}
-
-}
+func (cmd *CmdSystemNetworkObserver) InputToOptions() {}
 
 func (cmd *CmdSystemNetworkObserver) Run() error {
-	installer, err := networkobserver.NewInstaller(cmd.namespace, cmd.user, cmd.password)
+	installer, err := networkobserver.NewInstaller(cmd.namespace)
 	if err != nil {
 		return fmt.Errorf("failed to create installer: %w", err)
 	}
@@ -88,9 +70,6 @@ func (cmd *CmdSystemNetworkObserver) Run() error {
 
 	fmt.Println("Network observer installed successfully!")
 	fmt.Printf("\nAccess URL: %s\n", result.URL)
-	fmt.Printf("Username: %s\n", result.Username)
-	fmt.Printf("Password: %s\n", result.Password)
-	fmt.Println("\nNote: Save these credentials securely.")
 
 	return nil
 }

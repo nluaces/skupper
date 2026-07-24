@@ -14,8 +14,8 @@ import (
 const SystemdServiceTemplate = `[Unit]
 Description=Skupper Network Observer - %s
 After=network.target
-Wants=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service skupper-network-observer-nginx-%s.service
-After=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service skupper-network-observer-nginx-%s.service
+Wants=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service
+After=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service
 
 [Service]
 Type=oneshot
@@ -77,7 +77,7 @@ ExecStart={{.ContainerEngine}} run --name %s-skupper-network-observer \
     --restart always \
     -v %s/runtime/certs/skupper-local-client:/etc/messaging:ro,z \
     {{.NetworkObserverImage}} \
-    -listen=127.0.0.1:{{.NetobsPort}} \
+    -listen=:{{.NetobsPort}} \
     -prometheus-api=http://127.0.0.1:{{.PrometheusPort}} \
     -router-endpoint={{.RouterEndpoint}} \
     -router-tls-ca=/etc/messaging/ca.crt \
@@ -86,34 +86,6 @@ ExecStart={{.ContainerEngine}} run --name %s-skupper-network-observer \
     -listen-metrics=:{{.MetricsPort}}
 ExecStop={{.ContainerEngine}} stop %s-skupper-network-observer
 ExecStopPost={{.ContainerEngine}} rm %s-skupper-network-observer
-
-[Install]
-WantedBy=skupper-network-observer-%s.service
-`
-
-const SystemdNginxServiceTemplate = `[Unit]
-Description=Skupper Network Observer Nginx Proxy - %s
-After=network.target skupper-network-observer-app-%s.service
-PartOf=skupper-network-observer-%s.service
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=5
-ExecStartPre=-{{.ContainerEngine}} stop %s-skupper-nginx
-ExecStartPre=-{{.ContainerEngine}} rm %s-skupper-nginx
-ExecStart={{.ContainerEngine}} run --name %s-skupper-nginx \
-    --label application=skupper-v2 \
-    --label skupper.io/v2-component=nginx-proxy \
-    --user={{.RunAsUser}} \
-{{.UsernsFlag}}    --network host \
-    --restart always \
-    -v %s/network-observer/nginx/conf.d:/etc/nginx/conf.d:z \
-    -v %s/network-observer/certs:/etc/certificates:z \
-    -v %s/network-observer/htpasswd:/etc/httpusers:z \
-    {{.NginxImage}}
-ExecStop={{.ContainerEngine}} stop %s-skupper-nginx
-ExecStopPost={{.ContainerEngine}} rm %s-skupper-nginx
 
 [Install]
 WantedBy=skupper-network-observer-%s.service
@@ -161,8 +133,8 @@ func (s *SystemdServiceManager) CreateServices() error {
 	mainServicePath := filepath.Join(s.ServiceDir, mainServiceName)
 	mainServiceContent := fmt.Sprintf(SystemdServiceTemplate,
 		s.Namespace,
-		s.Namespace, s.Namespace, s.Namespace,
-		s.Namespace, s.Namespace, s.Namespace)
+		s.Namespace, s.Namespace,
+		s.Namespace, s.Namespace)
 	if err := os.WriteFile(mainServicePath, []byte(mainServiceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write main service file: %w", err)
 	}
@@ -181,13 +153,6 @@ func (s *SystemdServiceManager) CreateServices() error {
 		return fmt.Errorf("failed to write network observer service file: %w", err)
 	}
 
-	nginxServiceName := fmt.Sprintf("skupper-network-observer-nginx-%s.service", s.Namespace)
-	nginxServicePath := filepath.Join(s.ServiceDir, nginxServiceName)
-	nginxServiceContent := s.renderNginxService(namespacePath)
-	if err := os.WriteFile(nginxServicePath, []byte(nginxServiceContent), 0644); err != nil {
-		return fmt.Errorf("failed to write nginx service file: %w", err)
-	}
-
 	if err := s.reloadSystemd(); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
@@ -195,7 +160,6 @@ func (s *SystemdServiceManager) CreateServices() error {
 	for _, svc := range []string{
 		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),
 		fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace),
-		fmt.Sprintf("skupper-network-observer-nginx-%s.service", s.Namespace),
 		mainServiceName,
 	} {
 		if err := s.enableService(svc); err != nil {
@@ -245,19 +209,6 @@ func (s *SystemdServiceManager) renderNetworkObserverService(namespacePath strin
 	content = strings.ReplaceAll(content, "{{.PrometheusPort}}", fmt.Sprintf("%d", s.ports.prometheus))
 	content = strings.ReplaceAll(content, "{{.RouterEndpoint}}", s.ports.router)
 	content = strings.ReplaceAll(content, "{{.MetricsPort}}", fmt.Sprintf("%d", s.ports.metrics))
-	return content
-}
-
-func (s *SystemdServiceManager) renderNginxService(namespacePath string) string {
-	content := fmt.Sprintf(SystemdNginxServiceTemplate,
-		s.Namespace, s.Namespace, s.Namespace,
-		s.Namespace, s.Namespace, s.Namespace,
-		namespacePath, namespacePath, namespacePath,
-		s.Namespace, s.Namespace, s.Namespace)
-	content = strings.ReplaceAll(content, "{{.ContainerEngine}}", s.ContainerEngine)
-	content = strings.ReplaceAll(content, "{{.RunAsUser}}", s.RunAsUser)
-	content = strings.ReplaceAll(content, "{{.UsernsFlag}}", s.userNsFlag())
-	content = strings.ReplaceAll(content, "{{.NginxImage}}", images.GetNginxImageName())
 	return content
 }
 
@@ -311,7 +262,6 @@ func (s *SystemdServiceManager) RemoveServices() error {
 		mainServiceName,
 		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),
 		fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace),
-		fmt.Sprintf("skupper-network-observer-nginx-%s.service", s.Namespace),
 	}
 
 	for _, serviceName := range serviceNames {

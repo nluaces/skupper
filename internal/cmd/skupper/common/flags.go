@@ -93,10 +93,6 @@ for other Kubernetes flavors, loadbalancer is the default.`
 	FlagNameReloadType = "reload-type"
 	FlagDescReloadType = "Specify the type of reload to perform. Choices: manual, auto"
 
-	FlagNameNetworkObserverUsername  = "username"
-	FlagDescNetworkObserverUsername  = "Username for HTTP Basic Auth"
-	FlagNameNetworkObserverPassword  = "password"
-	FlagDescNetworkObserverPassword  = "Password for HTTP Basic Auth (auto-generated if not provided)"
 	FlagNameNetworkObserverUninstall = "uninstall"
 	FlagDescNetworkObserverUninstall = "Uninstall Network Observer and related containers"
 )
@@ -253,8 +249,6 @@ type CommandListenerGenerateFlags struct {
 }
 
 type CommandNetworkObserverFlags struct {
-	Username  string
-	Password  string
 	Uninstall bool
 }
 

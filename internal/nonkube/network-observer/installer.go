@@ -23,7 +23,6 @@ import (
 )
 
 type ports struct {
-	nginx      int
 	prometheus int
 	netobs     int
 	metrics    int
@@ -32,8 +31,6 @@ type ports struct {
 
 type Installer struct {
 	Namespace   string
-	Username    string
-	Password    string
 	Platform    string
 	ports       ports
 	logger      *slog.Logger
@@ -42,12 +39,10 @@ type Installer struct {
 }
 
 type InstallResult struct {
-	URL      string
-	Username string
-	Password string
+	URL string
 }
 
-func NewInstaller(namespace string, username string, password string) (*Installer, error) {
+func NewInstaller(namespace string) (*Installer, error) {
 	selectedPlatform, err := detectPlatform()
 	if err != nil {
 		return nil, err
@@ -64,8 +59,6 @@ func NewInstaller(namespace string, username string, password string) (*Installe
 
 	return &Installer{
 		Namespace:   namespace,
-		Username:    username,
-		Password:    password,
 		Platform:    selectedPlatform,
 		logger:      slog.Default().With("component", "network.observer.installer"),
 		siteHandler: fs.NewSiteHandler(namespace),
@@ -87,7 +80,6 @@ func (i *Installer) ValidatePrerequisitesForInstall() error {
 	containerNames := []string{
 		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
 		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
-		fmt.Sprintf("%s-skupper-nginx", i.Namespace),
 	}
 
 	for _, containerName := range containerNames {
@@ -129,15 +121,6 @@ func (i *Installer) Install() (*InstallResult, error) {
 		return nil, fmt.Errorf("failed to generate configurations: %w", err)
 	}
 
-	if err := i.generateCertificates(); err != nil {
-		return nil, fmt.Errorf("failed to generate certificates: %w", err)
-	}
-
-	generatedPassword, err := i.generateHtpasswd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate htpasswd: %w", err)
-	}
-
 	systemdGlobal, err := common.NewSystemdGlobal(i.Platform)
 	if err != nil {
 		return nil, err
@@ -156,10 +139,6 @@ func (i *Installer) Install() (*InstallResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = i.installContainer(GetNginxContainer(i.Namespace))
-	if err != nil {
-		return nil, err
-	}
 
 	err = i.createSystemdServices()
 	if err != nil {
@@ -169,9 +148,7 @@ func (i *Installer) Install() (*InstallResult, error) {
 	i.logger.Info("Network observer installation completed successfully")
 
 	return &InstallResult{
-		URL:      fmt.Sprintf("https://localhost:%d", i.ports.nginx),
-		Username: i.Username,
-		Password: generatedPassword,
+		URL: fmt.Sprintf("http://localhost:%d", i.ports.netobs),
 	}, nil
 }
 
@@ -180,7 +157,6 @@ func (i *Installer) ValidatePrerequisitesForUninstall() error {
 	containerNames := []string{
 		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
 		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
-		fmt.Sprintf("%s-skupper-nginx", i.Namespace),
 	}
 
 	containersAreRunning := false
@@ -206,7 +182,6 @@ func (i *Installer) Uninstall() error {
 	}
 
 	containerNames := []string{
-		fmt.Sprintf("%s-skupper-nginx", i.Namespace),
 		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
 		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
 	}
@@ -312,10 +287,6 @@ func (i *Installer) createDirectories() error {
 	dirs := []string{
 		filepath.Join(namespacePath, "network-observer"),
 		filepath.Join(namespacePath, "network-observer", "prometheus"),
-		filepath.Join(namespacePath, "network-observer", "nginx"),
-		filepath.Join(namespacePath, "network-observer", "nginx", "conf.d"),
-		filepath.Join(namespacePath, "network-observer", "htpasswd"),
-		filepath.Join(namespacePath, "network-observer", "certs"),
 	}
 
 	for _, dir := range dirs {
@@ -335,10 +306,6 @@ func (i *Installer) createDirectories() error {
 func (i *Installer) generateConfigurations() error {
 	namespacePath := api.GetHostNamespaceHome(i.Namespace)
 
-	nginxPort, err := utils.TcpPortNextFree(8443)
-	if err != nil {
-		return fmt.Errorf("failing to assign port to nginx: %s", err)
-	}
 	prometheusPort, err := utils.TcpPortNextFree(9090)
 	if err != nil {
 		return fmt.Errorf("failing to assign port to prometheus: %s", err)
@@ -358,7 +325,6 @@ func (i *Installer) generateConfigurations() error {
 	}
 
 	i.ports = ports{
-		nginx:      nginxPort,
 		prometheus: prometheusPort,
 		netobs:     netobsPort,
 		metrics:    metricsPort,
@@ -366,7 +332,6 @@ func (i *Installer) generateConfigurations() error {
 	}
 
 	i.logger.Info("Assigned ports",
-		slog.Int("nginx", nginxPort),
 		slog.Int("prometheus", prometheusPort),
 		slog.Int("netobs", netobsPort),
 		slog.Int("metrics", metricsPort),
@@ -378,37 +343,7 @@ func (i *Installer) generateConfigurations() error {
 		return fmt.Errorf("failed to write prometheus config: %w", err)
 	}
 
-	nginxPath := filepath.Join(namespacePath, "network-observer", "nginx", "conf.d", "default.conf")
-	if err := os.WriteFile(nginxPath, []byte(RenderNginxConfig(nginxPort, netobsPort)), 0644); err != nil {
-		return fmt.Errorf("failed to write nginx config: %w", err)
-	}
-
 	return nil
-}
-
-func (i *Installer) generateCertificates() error {
-	namespacePath := api.GetHostNamespaceHome(i.Namespace)
-	caDir := filepath.Join(namespacePath, string(api.IssuersPath), "skupper-local-ca")
-	certDir := filepath.Join(namespacePath, "network-observer", "certs")
-
-	return GenerateNginxCert(caDir, certDir)
-}
-
-func (i *Installer) generateHtpasswd() (string, error) {
-	namespacePath := api.GetHostNamespaceHome(i.Namespace)
-	htpasswdPath := filepath.Join(namespacePath, "network-observer", "htpasswd", "htpasswd")
-
-	username, password, htpasswdContent, err := GenerateHtpasswdCredentials(i.Username, i.Password)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate htpasswd credentials: %w", err)
-	}
-
-	if err := os.WriteFile(htpasswdPath, []byte(htpasswdContent), 0600); err != nil {
-		return "", fmt.Errorf("failed to write htpasswd file: %w", err)
-	}
-
-	i.logger.Info("Generated htpasswd credentials", "username", username)
-	return password, nil
 }
 
 func (i *Installer) installContainer(newContainer container.Container) error {

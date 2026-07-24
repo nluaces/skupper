@@ -242,19 +242,15 @@ func CmdSystemNetworkObserverFactory(configuredPlatform common.Platform) *cobra.
 		Use:   "network-observer",
 		Short: "Install the network observer",
 		Long: `Install the Skupper network observer to collect and expose network metrics.
-The network observer requires an existing Skupper site and will deploy three containers:
+The network observer requires an existing Skupper site and will deploy two containers:
 - network-observer: Collects metrics from the router
-- prometheus: Stores metrics
-- nginx: Provides HTTPS access with HTTP Basic Auth`,
-		Example: `skupper network-observer  --namespace west
-skupper network-observer -n west --username admin --password secret`,
+- prometheus: Stores metrics`,
+		Example: `skupper network-observer --namespace west`,
 	}
 
 	cmd := common.ConfigureCobraCommand(configuredPlatform, cmdDesc, nil, nonKubeCommand)
 
 	cmdFlags := common.CommandNetworkObserverFlags{}
-	cmd.Flags().StringVar(&cmdFlags.Username, common.FlagNameNetworkObserverUsername, "skupper", common.FlagDescNetworkObserverUsername)
-	cmd.Flags().StringVar(&cmdFlags.Password, common.FlagNameNetworkObserverPassword, "", common.FlagDescNetworkObserverPassword)
 	cmd.Flags().BoolVar(&cmdFlags.Uninstall, common.FlagNameNetworkObserverUninstall, false, common.FlagDescNetworkObserverUninstall)
 
 	kubeCommand.CobraCmd = cmd

@@ -11,8 +11,6 @@ const (
 
 	PrometheusImageRegistry   string = "quay.io/prometheus"
 	PrometheusServerImageName string = "prometheus:v3.11.3"
-	NginxImageRegistry        string = "mirror.gcr.io/nginxinc"
-	NginxImageName            string = "nginx-unprivileged:1.31.0-alpine"
 	OauthProxyImageRegistry   string = "quay.io/openshift"
 	OauthProxyImageName       string = "origin-oauth-proxy:4.14.0"
 )
