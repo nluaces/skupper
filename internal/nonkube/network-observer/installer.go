@@ -173,6 +173,17 @@ func (i *Installer) ValidatePrerequisitesForUninstall() error {
 	return nil
 }
 
+func UninstallForNamespace(namespace string) error {
+	installer, err := NewInstaller(namespace)
+	if err != nil {
+		return nil
+	}
+	if err := installer.ValidatePrerequisitesForUninstall(); err != nil {
+		return nil
+	}
+	return installer.Uninstall()
+}
+
 func (i *Installer) Uninstall() error {
 	i.logger.Info("Uninstalling network observer", slog.String("namespace", i.Namespace))
 
