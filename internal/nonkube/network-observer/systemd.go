@@ -10,8 +10,6 @@ import (
 const SystemdServiceTemplate = `[Unit]
 Description=Skupper Network Observer - %s
 After=network.target
-Wants=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service
-After=skupper-network-observer-prometheus-%s.service skupper-network-observer-app-%s.service
 
 [Service]
 Type=oneshot
@@ -90,10 +88,7 @@ func (s *SystemdServiceManager) CreateServices() error {
 
 	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
 	mainServicePath := filepath.Join(s.ServiceDir, mainServiceName)
-	mainServiceContent := fmt.Sprintf(SystemdServiceTemplate,
-		s.Namespace,
-		s.Namespace, s.Namespace,
-		s.Namespace, s.Namespace)
+	mainServiceContent := fmt.Sprintf(SystemdServiceTemplate, s.Namespace)
 	if err := os.WriteFile(mainServicePath, []byte(mainServiceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write main service file: %w", err)
 	}
@@ -120,17 +115,22 @@ func (s *SystemdServiceManager) CreateServices() error {
 		return fmt.Errorf("failed to write network observer service file: %w", err)
 	}
 
-	if err := s.reloadSystemd(); err != nil {
-		return fmt.Errorf("failed to reload systemd: %w", err)
-	}
-
 	for _, svc := range []string{
-		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),
-		fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace),
+		prometheusServiceName,
+		appServiceName,
 		mainServiceName,
 	} {
 		if err := s.enableService(svc); err != nil {
 			return fmt.Errorf("failed to enable service %s: %w", svc, err)
+		}
+	}
+
+	for _, svc := range []string{
+		prometheusServiceName,
+		appServiceName,
+	} {
+		if err := s.startService(svc); err != nil {
+			return fmt.Errorf("failed to start service %s: %w", svc, err)
 		}
 	}
 
@@ -180,13 +180,12 @@ func (s *SystemdServiceManager) startService(serviceName string) error {
 func (s *SystemdServiceManager) RemoveServices() error {
 	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
 
-	// Stop and disable the main service
+
 	if err := s.stopAndDisableService(mainServiceName); err != nil {
-		// Log but don't fail if service doesn't exist
 		fmt.Printf("Warning: failed to stop service: %v\n", err)
 	}
 
-	// Remove service files
+	
 	serviceNames := []string{
 		mainServiceName,
 		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),
@@ -200,7 +199,6 @@ func (s *SystemdServiceManager) RemoveServices() error {
 		}
 	}
 
-	// Reload systemd
 	if err := s.reloadSystemd(); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
