@@ -245,7 +245,7 @@ func CmdSystemNetworkObserverFactory(configuredPlatform common.Platform) *cobra.
 The network observer requires an existing Skupper site and will deploy two containers:
 - network-observer: Collects metrics from the router
 - prometheus: Stores metrics`,
-		Example: `skupper network-observer --namespace west`,
+		Example: `skupper system network-observer --namespace west`,
 	}
 
 	cmd := common.ConfigureCobraCommand(configuredPlatform, cmdDesc, nil, nonKubeCommand)
