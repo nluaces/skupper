@@ -5,10 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
-
-	"github.com/skupperproject/skupper/internal/images"
-	"github.com/skupperproject/skupper/pkg/nonkube/api"
 )
 
 const SystemdServiceTemplate = `[Unit]
@@ -36,22 +32,8 @@ PartOf=skupper-network-observer-%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStartPre=-{{.ContainerEngine}} stop %s-skupper-prometheus
-ExecStartPre=-{{.ContainerEngine}} rm %s-skupper-prometheus
-ExecStart={{.ContainerEngine}} run --name %s-skupper-prometheus \
-    --label application=skupper-v2 \
-    --label skupper.io/v2-component=prometheus \
-    --user={{.RunAsUser}} \
-{{.UsernsFlag}}    --network host \
-    --restart always \
-    -v %s/network-observer/prometheus:/etc/prometheus:z \
-    -v %s/network-observer/prometheus/data:/prometheus:z \
-    {{.PrometheusImage}} \
-    --config.file=/etc/prometheus/prometheus.yml \
-    --storage.tsdb.path=/prometheus/ \
-    --web.listen-address=:{{.PrometheusPort}}
-ExecStop={{.ContainerEngine}} stop %s-skupper-prometheus
-ExecStopPost={{.ContainerEngine}} rm %s-skupper-prometheus
+ExecStart=%s start --attach %s-skupper-prometheus
+ExecStop=%s stop %s-skupper-prometheus
 
 [Install]
 WantedBy=skupper-network-observer-%s.service
@@ -67,25 +49,8 @@ PartOf=skupper-network-observer-%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStartPre=-{{.ContainerEngine}} stop %s-skupper-network-observer
-ExecStartPre=-{{.ContainerEngine}} rm %s-skupper-network-observer
-ExecStart={{.ContainerEngine}} run --name %s-skupper-network-observer \
-    --label application=skupper-v2 \
-    --label skupper.io/v2-component=network-observer \
-    --user={{.RunAsUser}} \
-{{.UsernsFlag}}    --network host \
-    --restart always \
-    -v %s/runtime/certs/skupper-local-client:/etc/messaging:ro,z \
-    {{.NetworkObserverImage}} \
-    -listen=:{{.NetobsPort}} \
-    -prometheus-api=http://127.0.0.1:{{.PrometheusPort}} \
-    -router-endpoint={{.RouterEndpoint}} \
-    -router-tls-ca=/etc/messaging/ca.crt \
-    -router-tls-cert=/etc/messaging/tls.crt \
-    -router-tls-key=/etc/messaging/tls.key \
-    -listen-metrics=:{{.MetricsPort}}
-ExecStop={{.ContainerEngine}} stop %s-skupper-network-observer
-ExecStopPost={{.ContainerEngine}} rm %s-skupper-network-observer
+ExecStart=%s start --attach %s-skupper-network-observer
+ExecStop=%s stop %s-skupper-network-observer
 
 [Install]
 WantedBy=skupper-network-observer-%s.service
@@ -95,18 +60,14 @@ type SystemdServiceManager struct {
 	Namespace       string
 	ContainerEngine string
 	ServiceDir      string
-	RunAsUser       string
-	ports           ports
 }
 
-func NewSystemdServiceManager(namespace, containerEngine string, p ports) *SystemdServiceManager {
+func NewSystemdServiceManager(namespace, containerEngine string, _ ports) *SystemdServiceManager {
 	serviceDir := getSystemdServiceDir()
 	return &SystemdServiceManager{
 		Namespace:       namespace,
 		ContainerEngine: containerEngine,
 		ServiceDir:      serviceDir,
-		RunAsUser:       fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
-		ports:           p,
 	}
 }
 
@@ -127,8 +88,6 @@ func (s *SystemdServiceManager) CreateServices() error {
 		return fmt.Errorf("failed to create systemd service directory: %w", err)
 	}
 
-	namespacePath := api.GetHostNamespaceHome(s.Namespace)
-
 	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
 	mainServicePath := filepath.Join(s.ServiceDir, mainServiceName)
 	mainServiceContent := fmt.Sprintf(SystemdServiceTemplate,
@@ -141,14 +100,22 @@ func (s *SystemdServiceManager) CreateServices() error {
 
 	prometheusServiceName := fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace)
 	prometheusServicePath := filepath.Join(s.ServiceDir, prometheusServiceName)
-	prometheusServiceContent := s.renderPrometheusService(namespacePath)
+	prometheusServiceContent := fmt.Sprintf(SystemdPrometheusServiceTemplate,
+		s.Namespace, s.Namespace,
+		s.ContainerEngine, s.Namespace,
+		s.ContainerEngine, s.Namespace,
+		s.Namespace)
 	if err := os.WriteFile(prometheusServicePath, []byte(prometheusServiceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write prometheus service file: %w", err)
 	}
 
 	appServiceName := fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace)
 	appServicePath := filepath.Join(s.ServiceDir, appServiceName)
-	appServiceContent := s.renderNetworkObserverService(namespacePath)
+	appServiceContent := fmt.Sprintf(SystemdNetworkObserverServiceTemplate,
+		s.Namespace, s.Namespace, s.Namespace,
+		s.ContainerEngine, s.Namespace,
+		s.ContainerEngine, s.Namespace,
+		s.Namespace)
 	if err := os.WriteFile(appServicePath, []byte(appServiceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write network observer service file: %w", err)
 	}
@@ -172,44 +139,6 @@ func (s *SystemdServiceManager) CreateServices() error {
 	}
 
 	return nil
-}
-
-func (s *SystemdServiceManager) userNsFlag() string {
-	if s.ContainerEngine == "podman" {
-		return "    --userns=keep-id \\\n"
-	}
-	return ""
-}
-
-func (s *SystemdServiceManager) renderPrometheusService(namespacePath string) string {
-	content := fmt.Sprintf(SystemdPrometheusServiceTemplate,
-		s.Namespace, s.Namespace,
-		s.Namespace, s.Namespace, s.Namespace,
-		namespacePath, namespacePath,
-		s.Namespace, s.Namespace, s.Namespace)
-	content = strings.ReplaceAll(content, "{{.ContainerEngine}}", s.ContainerEngine)
-	content = strings.ReplaceAll(content, "{{.RunAsUser}}", s.RunAsUser)
-	content = strings.ReplaceAll(content, "{{.UsernsFlag}}", s.userNsFlag())
-	content = strings.ReplaceAll(content, "{{.PrometheusImage}}", images.GetPrometheusImageName())
-	content = strings.ReplaceAll(content, "{{.PrometheusPort}}", fmt.Sprintf("%d", s.ports.prometheus))
-	return content
-}
-
-func (s *SystemdServiceManager) renderNetworkObserverService(namespacePath string) string {
-	content := fmt.Sprintf(SystemdNetworkObserverServiceTemplate,
-		s.Namespace, s.Namespace, s.Namespace,
-		s.Namespace, s.Namespace, s.Namespace,
-		namespacePath,
-		s.Namespace, s.Namespace, s.Namespace)
-	content = strings.ReplaceAll(content, "{{.ContainerEngine}}", s.ContainerEngine)
-	content = strings.ReplaceAll(content, "{{.RunAsUser}}", s.RunAsUser)
-	content = strings.ReplaceAll(content, "{{.UsernsFlag}}", s.userNsFlag())
-	content = strings.ReplaceAll(content, "{{.NetworkObserverImage}}", images.GetNetworkObserverImageName())
-	content = strings.ReplaceAll(content, "{{.NetobsPort}}", fmt.Sprintf("%d", s.ports.netobs))
-	content = strings.ReplaceAll(content, "{{.PrometheusPort}}", fmt.Sprintf("%d", s.ports.prometheus))
-	content = strings.ReplaceAll(content, "{{.RouterEndpoint}}", s.ports.router)
-	content = strings.ReplaceAll(content, "{{.MetricsPort}}", fmt.Sprintf("%d", s.ports.metrics))
-	return content
 }
 
 func (s *SystemdServiceManager) reloadSystemd() error {
