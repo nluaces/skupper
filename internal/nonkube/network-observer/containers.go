@@ -17,13 +17,12 @@ func GetNetworkObserverContainer(namespace string, p ports) container.Container 
 		Name:  fmt.Sprintf("%s-skupper-network-observer", namespace),
 		Image: images.GetNetworkObserverImageName(),
 		Command: []string{
-			fmt.Sprintf("-listen=:%d", p.netobs),
+			fmt.Sprintf("-listen=127.0.0.1:%d", p.netobs),
 			fmt.Sprintf("-prometheus-api=http://127.0.0.1:%d", p.prometheus),
 			fmt.Sprintf("-router-endpoint=%s", p.router),
 			"-router-tls-ca=/etc/messaging/ca.crt",
 			"-router-tls-cert=/etc/messaging/tls.crt",
 			"-router-tls-key=/etc/messaging/tls.key",
-			fmt.Sprintf("-listen-metrics=:%d", p.metrics),
 		},
 		Env: map[string]string{},
 		Labels: map[string]string{
@@ -53,7 +52,7 @@ func GetPrometheusContainer(namespace string, p ports) container.Container {
 		Command: []string{
 			"--config.file=/etc/prometheus/prometheus.yml",
 			"--storage.tsdb.path=/prometheus/",
-			fmt.Sprintf("--web.listen-address=:%d", p.prometheus),
+			fmt.Sprintf("--web.listen-address=127.0.0.1:%d", p.prometheus),
 		},
 		Env: map[string]string{},
 		Labels: map[string]string{
