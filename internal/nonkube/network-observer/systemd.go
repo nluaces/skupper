@@ -180,12 +180,10 @@ func (s *SystemdServiceManager) startService(serviceName string) error {
 func (s *SystemdServiceManager) RemoveServices() error {
 	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
 
-
 	if err := s.stopAndDisableService(mainServiceName); err != nil {
 		fmt.Printf("Warning: failed to stop service: %v\n", err)
 	}
 
-	
 	serviceNames := []string{
 		mainServiceName,
 		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),

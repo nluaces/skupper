@@ -131,11 +131,11 @@ func TestCmdSystemUninstall_InputToOptions(t *testing.T) {
 
 func TestCmdSystemUninstall_Run(t *testing.T) {
 	type test struct {
-		name                    string
-		flags                   *common.CommandSystemUninstallFlags
-		disableSocketFails      bool
-		networkObserverFails    bool
-		errorMessage            string
+		name                 string
+		flags                *common.CommandSystemUninstallFlags
+		disableSocketFails   bool
+		networkObserverFails bool
+		errorMessage         string
 	}
 
 	testTable := []test{
@@ -263,4 +263,6 @@ func mockCmdSystemUninstallCheckActiveSitesFails() (bool, error) { return false,
 func mockCmdSystemUninstallNoActiveSites() (bool, error)         { return false, nil }
 func mockCmdSystemTearDown(string) error                         { return nil }
 func mockNetworkObserverUninstall(string) error                  { return nil }
-func mockNetworkObserverUninstallFails(string) error             { return fmt.Errorf("network observer uninstall failed") }
+func mockNetworkObserverUninstallFails(string) error {
+	return fmt.Errorf("network observer uninstall failed")
+}
