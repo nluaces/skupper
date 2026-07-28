@@ -174,13 +174,15 @@ func (i *Installer) ValidatePrerequisitesForUninstall() error {
 }
 
 func UninstallForNamespace(namespace string) error {
+	namespacePath := api.GetHostNamespaceHome(namespace)
+	dataDir := filepath.Join(namespacePath, "network-observer")
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		return nil
+	}
+
 	installer, err := NewInstaller(namespace)
 	if err != nil {
 		return err
-	}
-	if err := installer.ValidatePrerequisitesForUninstall(); err != nil {
-		installer.logger.Info("Skipping network observer uninstall", slog.String("reason", err.Error()))
-		return nil
 	}
 	return installer.Uninstall()
 }
