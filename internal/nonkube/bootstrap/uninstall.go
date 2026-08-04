@@ -72,6 +72,8 @@ func Uninstall(platform string) error {
 
 	systemdService.Remove()
 
+	newSiteServiceEnablerInstaller().Remove()
+
 	fmt.Printf("Platform %s infrastructure for Skupper is now uninstalled\n", platform)
 
 	return nil

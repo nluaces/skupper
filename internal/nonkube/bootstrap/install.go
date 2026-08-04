@@ -144,6 +144,13 @@ func Install(platform string, reloadType string) error {
 		return fmt.Errorf("failed to create system-controller systemd service: %v", err)
 	}
 
+	if reloadType == types.SystemReloadTypeAuto {
+		enabler := newSiteServiceEnablerInstaller()
+		if err = enabler.Install(); err != nil {
+			return fmt.Errorf("failed to install skupper site service enabler: %v", err)
+		}
+	}
+
 	fmt.Printf("Platform %s is now configured for Skupper\n", platform)
 
 	return nil

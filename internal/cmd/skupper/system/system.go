@@ -35,6 +35,7 @@ approach, which is based on the new set of Custom Resource Definitions (CRDs).`,
 	cmd.AddCommand(CmdSystemGenerateBundleFactory(platform))
 	cmd.AddCommand(CmdSystemApplyFactory(platform))
 	cmd.AddCommand(CmdSystemDeleteFactory(platform))
+	cmd.AddCommand(nonkube.NewCmdSiteServiceEnabler())
 
 	return cmd
 }
