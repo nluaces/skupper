@@ -159,3 +159,79 @@ func TestTwoListeners(t *testing.T) {
 	assert.Equal(t, svcB.Spec.Ports[0].Port, int32(9090))
 	assert.Equal(t, svcB.Labels["internal.skupper.io/listener"], "listener-b")
 }
+
+func TestListenerCreateDeleteStorm(t *testing.T) {
+	// What will happen if we rapidly create and then delete
+	// a Listener, with a create being the last thing we do?
+	// It should end up with a Listener, its Service,
+	// and a reference to it in the Router Config.
+	tc := setup(t)
+	namespace := "listener-storm"
+	tc.createNamespace(namespace)
+
+	ctx := context.Background()
+	listenerName := "storm-listener"
+	serviceName := "storm-svc"
+
+	// Make the Site for the test.
+	_, err := tc.clients.GetSkupperClient().SkupperV2alpha1().Sites(namespace).Create(ctx, fixtures.Site("mysite", namespace), metav1.CreateOptions{})
+	assert.NilError(t, err)
+
+	// This is the Storm!
+	// We are deliberately not checking errors here,
+	// because we want to see if anything will break.
+	const iterations = 100
+	for i := 0; i < iterations; i++ {
+		listener := listenerWithHostPort(listenerName, namespace, serviceName, 8080)
+		_, _ = tc.clients.GetSkupperClient().SkupperV2alpha1().Listeners(namespace).Create(ctx, listener, metav1.CreateOptions{})
+		// (intentionally ignoring create errors under stress, or treat AlreadyExists as OK)
+
+		if i < iterations-1 {
+			_ = tc.clients.GetSkupperClient().SkupperV2alpha1().Listeners(namespace).Delete(ctx, listenerName, metav1.DeleteOptions{})
+			// (optionally ignore NotFound)
+		}
+	}
+
+	// After the storm: wait until Listener, Service, and a mention in the Router Config all show up.
+	// (They should, because we ended with a create.)
+	waitFor(t, 30*time.Second, 250*time.Millisecond, func() (bool, error) {
+		// Check for the Listener.
+		_, err := tc.clients.GetSkupperClient().SkupperV2alpha1().Listeners(namespace).Get(ctx, listenerName, metav1.GetOptions{})
+		// If the Get failed only because the object isn’t there yet → keep waiting.
+		// If the Get failed for a real reason → fail the test.
+		// If the Get succeeded → continue checking other things.
+		if done, err := retryOnNotFound(err); !done {
+			return false, err
+		}
+
+		// Check for the Service.
+		_, err = tc.clients.GetKubeClient().CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+		if done, err := retryOnNotFound(err); !done {
+			return false, err
+		}
+
+		// Check for a reference to the Listener in the Router Config.
+		routerConfig, err := tc.clients.GetKubeClient().CoreV1().ConfigMaps(namespace).Get(ctx, "skupper-router", metav1.GetOptions{})
+		if done, err := retryOnNotFound(err); !done {
+			return false, err
+		}
+		cfg := routerConfig.Data[types.TransportConfigFile]
+
+		// If everything was found, fall through happy.
+		return strings.Contains(cfg, "listener/"+listenerName), nil
+	})
+
+	// Final checks :
+	// We should still have a Listener
+	_, err = tc.clients.GetSkupperClient().SkupperV2alpha1().Listeners(namespace).Get(ctx, listenerName, metav1.GetOptions{})
+	assert.NilError(t, err)
+
+	// ...and a Service...
+	_, err = tc.clients.GetKubeClient().CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	assert.NilError(t, err)
+
+	// ...and a reference o the Listener in the Router Config.
+	routerConfig, err := tc.clients.GetKubeClient().CoreV1().ConfigMaps(namespace).Get(ctx, "skupper-router", metav1.GetOptions{})
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(routerConfig.Data[types.TransportConfigFile], "listener/"+listenerName))
+}
