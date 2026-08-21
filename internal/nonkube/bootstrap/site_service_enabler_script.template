@@ -11,6 +11,7 @@ SYSTEMCTL_ARGS="{{.SystemctlArgs}}"
 
 SCRIPT_SUBPATH="internal/scripts"
 POLL_INTERVAL=5
+OWNERSHIP_MARKER="X-ManagedBy=skupper-site-service-enabler"
 
 systemctl_run() {
     systemctl ${SYSTEMCTL_ARGS}"$@"
@@ -21,32 +22,38 @@ enable_service() {
     svc=$(basename "$src")
     dst="${UNIT_DIR}/${svc}"
     mkdir -p "${UNIT_DIR}"
-    if ! cmp -s "$src" "$dst"; then
-        cp "$src" "$dst"
+    changed=0
+    
+    owned=$(awk '/^\[Unit\]/{print; print "'"${OWNERSHIP_MARKER}"'"; next}1' "$src")
+    existing=$(cat "$dst" 2>/dev/null || true)
+    if [ "$owned" != "$existing" ]; then
+        printf '%s' "$owned" > "$dst"
         systemctl_run daemon-reload || true
+        changed=1
     fi
     systemctl_run enable --now "$svc" || true
+    if [ "$changed" -eq 1 ]; then
+        systemctl_run restart "$svc" || true
+    fi
 }
 
 disable_service() {
     svc="$1"
     dst="${UNIT_DIR}/${svc}"
     if [ -f "$dst" ]; then
-        systemctl_run disable --now "$svc" || true
-        rm -f "$dst"
-        systemctl_run daemon-reload || true
+        if systemctl_run disable --now "$svc"; then
+            rm -f "$dst"
+            systemctl_run daemon-reload || true
+        fi
     fi
 }
 
 # List site service unit files we manage.
-# Only considers files that match the per-namespace naming pattern
-# skupper-<namespace>.service, excluding infrastructure services.
+# Only files bearing the ownership marker are considered owned by this helper.
 list_active() {
     [ -d "${UNIT_DIR}" ] || return
-    find "${UNIT_DIR}" -maxdepth 1 -name "skupper-*.service" \
-        ! -name "skupper-site-service-enabler.service" \
-        ! -name "skupper-controller.service" \
-        ! -name "skupper-network-observer-*.service"
+    grep -rl "${OWNERSHIP_MARKER}" "${UNIT_DIR}" 2>/dev/null \
+        | grep -E '/skupper-[^/]+\.service$'
 }
 
 while true; do

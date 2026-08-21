@@ -31,7 +31,7 @@ type siteServiceEnablerData struct {
 }
 
 type siteServiceEnablerScriptData struct {
-	NamespacesDir string
+	NamespacesDir  string
 	SystemdUnitDir string
 	SystemctlArgs  string
 }
@@ -86,12 +86,23 @@ func (s *SiteServiceEnablerInstaller) Install() error {
 	return nil
 }
 
-func (s *SiteServiceEnablerInstaller) Remove() {
-	_ = s.systemctl("stop", siteServiceEnablerServiceFile)
-	_ = s.systemctl("disable", siteServiceEnablerServiceFile)
-	_ = os.Remove(s.unitPath(siteServiceEnablerServiceFile))
-	_ = os.Remove(path.Join(s.scriptDir, siteServiceEnablerWrapperScript))
-	_ = s.systemctl("daemon-reload")
+func (s *SiteServiceEnablerInstaller) Remove() error {
+	if err := s.systemctl("stop", siteServiceEnablerServiceFile); err != nil {
+		return fmt.Errorf("failed to stop %s: %w", siteServiceEnablerServiceFile, err)
+	}
+	if err := s.systemctl("disable", siteServiceEnablerServiceFile); err != nil {
+		return fmt.Errorf("failed to disable %s: %w", siteServiceEnablerServiceFile, err)
+	}
+	if err := os.Remove(s.unitPath(siteServiceEnablerServiceFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove unit file: %w", err)
+	}
+	if err := os.Remove(path.Join(s.scriptDir, siteServiceEnablerWrapperScript)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove wrapper script: %w", err)
+	}
+	if err := s.systemctl("daemon-reload"); err != nil {
+		return fmt.Errorf("daemon-reload failed after remove: %w", err)
+	}
+	return nil
 }
 
 func (s *SiteServiceEnablerInstaller) scriptData() siteServiceEnablerScriptData {

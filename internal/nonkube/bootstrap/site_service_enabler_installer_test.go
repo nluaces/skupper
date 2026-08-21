@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,27 +14,26 @@ import (
 func fakeCommand(calls *[][]string) func(string, ...string) *exec.Cmd {
 	return func(name string, args ...string) *exec.Cmd {
 		*calls = append(*calls, append([]string{name}, args...))
-		return exec.Command("true")
+		return exec.CommandContext(context.Background(), "true")
 	}
 }
-
 
 func fakeCommandNotRunning(calls *[][]string) func(string, ...string) *exec.Cmd {
 	return func(name string, args ...string) *exec.Cmd {
 		*calls = append(*calls, append([]string{name}, args...))
 		for _, a := range args {
 			if a == "is-active" {
-				return exec.Command("false")
+				return exec.CommandContext(context.Background(), "false")
 			}
 		}
-		return exec.Command("true")
+		return exec.CommandContext(context.Background(), "true")
 	}
 }
 
 func newTestInstaller(t *testing.T, uid int, calls *[][]string) *SiteServiceEnablerInstaller {
 	t.Helper()
 	tmp := t.TempDir()
-	
+
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	return &SiteServiceEnablerInstaller{
 		uid:                 uid,
@@ -127,6 +127,62 @@ func TestRenderFile_ScriptTemplate(t *testing.T) {
 	assert.Assert(t, strings.Contains(string(content), "POLL_INTERVAL"))
 }
 
+func renderScript(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	dst := filepath.Join(tmp, "out.sh")
+	s := &SiteServiceEnablerInstaller{}
+	err := s.renderFile(siteServiceEnablerScriptTemplate, siteServiceEnablerScriptData{
+		NamespacesDir:  "/ns",
+		SystemdUnitDir: "/units",
+		SystemctlArgs:  "",
+	}, dst, 0755)
+	assert.NilError(t, err)
+	content, err := os.ReadFile(dst)
+	assert.NilError(t, err)
+	return string(content)
+}
+
+func TestScript_RestartsServiceOnUnitChange(t *testing.T) {
+	body := renderScript(t)
+	assert.Assert(t, strings.Contains(body, "changed=1"), "expected changed=1 inside change detection branch")
+	assert.Assert(t, strings.Contains(body, `if [ "$changed" -eq 1 ]`), "expected conditional restart block")
+	assert.Assert(t, strings.Contains(body, `systemctl_run restart "$svc"`), "expected restart via systemctl_run")
+}
+
+func TestScript_OwnershipMarkerAppendedToUnitCopy(t *testing.T) {
+	body := renderScript(t)
+	assert.Assert(t, strings.Contains(body, "OWNERSHIP_MARKER="), "expected OWNERSHIP_MARKER variable")
+	assert.Assert(t, strings.Contains(body, "X-ManagedBy=skupper-site-service-enabler"), "expected X-ManagedBy marker text")
+	assert.Assert(t, strings.Contains(body, `awk '/^\[Unit\]/`), "expected awk injection into [Unit] section")
+	assert.Assert(t, strings.Contains(body, `printf '%s' "$owned" > "$dst"`), "expected owned content written to dst")
+}
+
+func TestScript_ListActiveUsesMarkerNotPrefix(t *testing.T) {
+	body := renderScript(t)
+	assert.Assert(t, strings.Contains(body, `grep -rl "${OWNERSHIP_MARKER}"`), "expected grep on ownership marker in list_active")
+	assert.Assert(t, !strings.Contains(body, `find "${UNIT_DIR}" -maxdepth 1 -name "skupper-*.service"`), "must not use prefix-based find")
+}
+
+func TestScript_KeepsUnitFileWhenDisableFails(t *testing.T) {
+	tmp := t.TempDir()
+	dst := filepath.Join(tmp, "out.sh")
+	s := &SiteServiceEnablerInstaller{}
+	err := s.renderFile(siteServiceEnablerScriptTemplate, siteServiceEnablerScriptData{
+		NamespacesDir:  "/ns",
+		SystemdUnitDir: "/units",
+		SystemctlArgs:  "",
+	}, dst, 0755)
+	assert.NilError(t, err)
+
+	content, err := os.ReadFile(dst)
+	assert.NilError(t, err)
+	body := string(content)
+
+	assert.Assert(t, strings.Contains(body, `if systemctl_run disable --now "$svc"`), "expected disable guarding rm")
+	assert.Assert(t, strings.Contains(body, "rm -f"), "expected rm -f inside disable branch")
+}
+
 func TestRenderFile_InvalidTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	s := &SiteServiceEnablerInstaller{}
@@ -179,7 +235,6 @@ func TestInstall_SystemctlCallOrder(t *testing.T) {
 	err := s.Install()
 	assert.NilError(t, err)
 
-
 	assert.Equal(t, len(calls), 4)
 	assert.DeepEqual(t, calls[0], []string{"systemctl", "is-active", "--quiet", siteServiceEnablerServiceFile})
 	assert.DeepEqual(t, calls[1], []string{"systemctl", "daemon-reload"})
@@ -229,7 +284,8 @@ func TestRemove_SystemctlCallOrder(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 0, &calls)
 
-	s.Remove()
+	err := s.Remove()
+	assert.NilError(t, err)
 
 	assert.Equal(t, len(calls), 3)
 	assert.DeepEqual(t, calls[0], []string{"systemctl", "stop", siteServiceEnablerServiceFile})
@@ -249,9 +305,10 @@ func TestRemove_DeletesFiles(t *testing.T) {
 	_ = os.MkdirAll(s.scriptDir, 0755)
 	_ = os.WriteFile(scriptPath, []byte("#!/bin/sh"), 0755)
 
-	s.Remove()
+	err := s.Remove()
+	assert.NilError(t, err)
 
-	_, err := os.Stat(svcPath)
+	_, err = os.Stat(svcPath)
 	assert.Assert(t, os.IsNotExist(err), "service file should be removed")
 
 	_, err = os.Stat(scriptPath)
@@ -262,7 +319,8 @@ func TestRemove_NonRoot_SystemctlUsesUserFlag(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 1000, &calls)
 
-	s.Remove()
+	err := s.Remove()
+	assert.NilError(t, err)
 
 	for _, c := range calls {
 		assert.Equal(t, c[1], "--user", "expected --user flag in call %v", c)
@@ -272,5 +330,78 @@ func TestRemove_NonRoot_SystemctlUsesUserFlag(t *testing.T) {
 func TestRemove_ToleratesMissingFiles(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 0, &calls)
-	s.Remove()
+	err := s.Remove()
+	assert.NilError(t, err)
+}
+
+func TestRemove_FailsOnStopError(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+	s.command = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, append([]string{name}, args...))
+		for _, a := range args {
+			if a == "stop" {
+				return exec.CommandContext(context.Background(), "false")
+			}
+		}
+		return exec.CommandContext(context.Background(), "true")
+	}
+
+	err := s.Remove()
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "failed to stop"))
+	// disable and daemon-reload must not have been called
+	assert.Equal(t, len(calls), 1)
+}
+
+func TestRemove_FailsOnDisableError(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+	s.command = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, append([]string{name}, args...))
+		for _, a := range args {
+			if a == "disable" {
+				return exec.CommandContext(context.Background(), "false")
+			}
+		}
+		return exec.CommandContext(context.Background(), "true")
+	}
+
+	err := s.Remove()
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "failed to disable"))
+	// daemon-reload must not have been called
+	assert.Equal(t, len(calls), 2)
+}
+
+func TestRemove_FailsOnUnitFileRemoveError(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+	s.command = fakeCommand(&calls)
+
+	unitPath := s.unitPath(siteServiceEnablerServiceFile)
+	_ = os.MkdirAll(unitPath, 0755)
+	_ = os.WriteFile(filepath.Join(unitPath, "child"), []byte("x"), 0644)
+
+	err := s.Remove()
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "failed to remove unit file"))
+}
+
+func TestRemove_FailsOnDaemonReloadError(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+	s.command = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, append([]string{name}, args...))
+		for _, a := range args {
+			if a == "daemon-reload" {
+				return exec.CommandContext(context.Background(), "false")
+			}
+		}
+		return exec.CommandContext(context.Background(), "true")
+	}
+
+	err := s.Remove()
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "daemon-reload failed after remove"))
 }

@@ -15,7 +15,9 @@ import (
 
 func Uninstall(platform string) error {
 
-	newSiteServiceEnablerInstaller().Remove()
+	if err := newSiteServiceEnablerInstaller().Remove(); err != nil {
+		return fmt.Errorf("failed to remove skupper site service enabler: %w", err)
+	}
 
 	currentUser, err := user.Current()
 	if err != nil {
