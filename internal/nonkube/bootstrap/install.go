@@ -40,6 +40,11 @@ func Install(platform string, reloadType string) error {
 		return err
 	}
 
+	if reloadType == "" {
+		reloadType = utils.DefaultStr(os.Getenv(types.ENV_SYSTEM_AUTO_RELOAD),
+			types.SystemReloadTypeManual)
+	}
+
 	config, err := configEnvVariables(platform)
 	if err != nil {
 		return err
@@ -83,11 +88,6 @@ func Install(platform string, reloadType string) error {
 		return fmt.Errorf("failed to pull system-controller image: %v", err)
 	}
 	fmt.Printf("Pulled system-controller image: %s\n", images.GetSystemControllerImageName())
-
-	if reloadType == "" {
-		reloadType = utils.DefaultStr(os.Getenv(types.ENV_SYSTEM_AUTO_RELOAD),
-			types.SystemReloadTypeManual)
-	}
 
 	env := map[string]string{
 		"CONTAINER_ENDPOINT":         config.containerEndpoint,
