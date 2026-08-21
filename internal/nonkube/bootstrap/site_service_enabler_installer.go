@@ -87,14 +87,17 @@ func (s *SiteServiceEnablerInstaller) Install() error {
 }
 
 func (s *SiteServiceEnablerInstaller) Remove() error {
-	if err := s.systemctl("stop", siteServiceEnablerServiceFile); err != nil {
-		return fmt.Errorf("failed to stop %s: %w", siteServiceEnablerServiceFile, err)
-	}
-	if err := s.systemctl("disable", siteServiceEnablerServiceFile); err != nil {
-		return fmt.Errorf("failed to disable %s: %w", siteServiceEnablerServiceFile, err)
-	}
-	if err := os.Remove(s.unitPath(siteServiceEnablerServiceFile)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove unit file: %w", err)
+	unitFile := s.unitPath(siteServiceEnablerServiceFile)
+	if _, err := os.Stat(unitFile); err == nil {
+		if err := s.systemctl("stop", siteServiceEnablerServiceFile); err != nil {
+			return fmt.Errorf("failed to stop %s: %w", siteServiceEnablerServiceFile, err)
+		}
+		if err := s.systemctl("disable", siteServiceEnablerServiceFile); err != nil {
+			return fmt.Errorf("failed to disable %s: %w", siteServiceEnablerServiceFile, err)
+		}
+		if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove unit file: %w", err)
+		}
 	}
 	if err := os.Remove(path.Join(s.scriptDir, siteServiceEnablerWrapperScript)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove wrapper script: %w", err)

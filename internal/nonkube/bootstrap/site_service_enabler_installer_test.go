@@ -284,6 +284,11 @@ func TestRemove_SystemctlCallOrder(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 0, &calls)
 
+	// Pre-create the unit file so stop/disable are attempted.
+	svcPath := s.unitPath(siteServiceEnablerServiceFile)
+	_ = os.MkdirAll(filepath.Dir(svcPath), 0755)
+	_ = os.WriteFile(svcPath, []byte("[Unit]"), 0644)
+
 	err := s.Remove()
 	assert.NilError(t, err)
 
@@ -319,6 +324,11 @@ func TestRemove_NonRoot_SystemctlUsesUserFlag(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 1000, &calls)
 
+	// Pre-create the unit file so stop/disable are attempted.
+	svcPath := s.unitPath(siteServiceEnablerServiceFile)
+	_ = os.MkdirAll(filepath.Dir(svcPath), 0755)
+	_ = os.WriteFile(svcPath, []byte("[Unit]"), 0644)
+
 	err := s.Remove()
 	assert.NilError(t, err)
 
@@ -332,6 +342,23 @@ func TestRemove_ToleratesMissingFiles(t *testing.T) {
 	s := newTestInstaller(t, 0, &calls)
 	err := s.Remove()
 	assert.NilError(t, err)
+	// Unit absent: only daemon-reload is called.
+	assert.Equal(t, len(calls), 1)
+	assert.DeepEqual(t, calls[0], []string{"systemctl", "daemon-reload"})
+}
+
+func TestRemove_SkipsStopDisableWhenUnitAbsent(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+
+	err := s.Remove()
+	assert.NilError(t, err)
+
+	// stop and disable must not have been called; only daemon-reload.
+	for _, c := range calls {
+		assert.Assert(t, c[1] != "stop", "stop must not be called when unit is absent")
+		assert.Assert(t, c[1] != "disable", "disable must not be called when unit is absent")
+	}
 }
 
 func TestRemove_FailsOnStopError(t *testing.T) {
@@ -346,6 +373,11 @@ func TestRemove_FailsOnStopError(t *testing.T) {
 		}
 		return exec.CommandContext(context.Background(), "true")
 	}
+
+	// Pre-create the unit file so the stop branch is entered.
+	svcPath := s.unitPath(siteServiceEnablerServiceFile)
+	_ = os.MkdirAll(filepath.Dir(svcPath), 0755)
+	_ = os.WriteFile(svcPath, []byte("[Unit]"), 0644)
 
 	err := s.Remove()
 	assert.Assert(t, err != nil)
@@ -366,6 +398,11 @@ func TestRemove_FailsOnDisableError(t *testing.T) {
 		}
 		return exec.CommandContext(context.Background(), "true")
 	}
+
+	// Pre-create the unit file so the disable branch is entered.
+	svcPath := s.unitPath(siteServiceEnablerServiceFile)
+	_ = os.MkdirAll(filepath.Dir(svcPath), 0755)
+	_ = os.WriteFile(svcPath, []byte("[Unit]"), 0644)
 
 	err := s.Remove()
 	assert.Assert(t, err != nil)
