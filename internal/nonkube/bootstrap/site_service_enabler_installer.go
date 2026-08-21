@@ -15,6 +15,9 @@ import (
 //go:embed site_service_enabler_service.template
 var siteServiceEnablerServiceTemplate string
 
+//go:embed site_service_enabler_script.template
+var siteServiceEnablerScriptTemplate string
+
 const (
 	siteServiceEnablerRootSystemdBasePath = "/etc/systemd/system"
 	siteServiceEnablerName                = "skupper-site-service-enabler"
@@ -25,6 +28,12 @@ const (
 type siteServiceEnablerData struct {
 	ScriptPath string
 	WantedBy   string
+}
+
+type siteServiceEnablerScriptData struct {
+	NamespacesDir string
+	SystemdUnitDir string
+	SystemctlArgs  string
 }
 
 type SiteServiceEnablerInstaller struct {
@@ -44,19 +53,23 @@ func newSiteServiceEnablerInstaller() *SiteServiceEnablerInstaller {
 }
 
 func (s *SiteServiceEnablerInstaller) Install() error {
+	if s.isRunning() {
+		return nil
+	}
 	if err := os.MkdirAll(s.scriptDir, 0755); err != nil {
 		return fmt.Errorf("unable to create script directory %q: %w", s.scriptDir, err)
 	}
+	if err := os.MkdirAll(s.userSystemdDir(), 0755); err != nil {
+		return fmt.Errorf("unable to create systemd unit directory %q: %w", s.userSystemdDir(), err)
+	}
 
 	scriptPath := path.Join(s.scriptDir, siteServiceEnablerWrapperScript)
-	script := "#!/bin/sh\nexec skupper system _site-service-enabler\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+	if err := s.renderFile(siteServiceEnablerScriptTemplate, s.scriptData(), scriptPath, 0755); err != nil {
 		return fmt.Errorf("unable to write wrapper script %q: %w", scriptPath, err)
 	}
 
-	tmplData := s.templateData(scriptPath)
 	serviceFile := s.unitPath(siteServiceEnablerServiceFile)
-	if err := s.renderFile(siteServiceEnablerServiceTemplate, tmplData, serviceFile, 0644); err != nil {
+	if err := s.renderFile(siteServiceEnablerServiceTemplate, s.templateData(scriptPath), serviceFile, 0644); err != nil {
 		return fmt.Errorf("unable to write site enabler service unit: %w", err)
 	}
 
@@ -76,10 +89,21 @@ func (s *SiteServiceEnablerInstaller) Install() error {
 func (s *SiteServiceEnablerInstaller) Remove() {
 	_ = s.systemctl("stop", siteServiceEnablerServiceFile)
 	_ = s.systemctl("disable", siteServiceEnablerServiceFile)
-	_ = s.systemctl("daemon-reload")
-
 	_ = os.Remove(s.unitPath(siteServiceEnablerServiceFile))
 	_ = os.Remove(path.Join(s.scriptDir, siteServiceEnablerWrapperScript))
+	_ = s.systemctl("daemon-reload")
+}
+
+func (s *SiteServiceEnablerInstaller) scriptData() siteServiceEnablerScriptData {
+	systemctlArgs := ""
+	if s.uid != 0 {
+		systemctlArgs = "--user "
+	}
+	return siteServiceEnablerScriptData{
+		NamespacesDir:  api.GetDefaultOutputNamespacesPath(),
+		SystemdUnitDir: s.userSystemdDir(),
+		SystemctlArgs:  systemctlArgs,
+	}
 }
 
 func (s *SiteServiceEnablerInstaller) templateData(scriptPath string) siteServiceEnablerData {
@@ -104,6 +128,10 @@ func (s *SiteServiceEnablerInstaller) userSystemdDir() string {
 	return path.Join(api.GetConfigHome(), "systemd", "user")
 }
 
+func (s *SiteServiceEnablerInstaller) isRunning() bool {
+	return s.systemctl("is-active", "--quiet", siteServiceEnablerServiceFile) == nil
+}
+
 func (s *SiteServiceEnablerInstaller) systemctl(args ...string) error {
 	var fullArgs []string
 	if s.uid != 0 {
@@ -113,7 +141,7 @@ func (s *SiteServiceEnablerInstaller) systemctl(args ...string) error {
 	return s.command("systemctl", fullArgs...).Run()
 }
 
-func (s *SiteServiceEnablerInstaller) renderFile(tmplText string, data siteServiceEnablerData, dst string, mode os.FileMode) error {
+func (s *SiteServiceEnablerInstaller) renderFile(tmplText string, data any, dst string, mode os.FileMode) error {
 	tmpl, err := template.New("").Parse(tmplText)
 	if err != nil {
 		return err

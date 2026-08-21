@@ -51,6 +51,12 @@ func Install(platform string, reloadType string) error {
 
 	if isContainerAlreadyRunningInPodman {
 		fmt.Printf("Warning: The system controller container %q is already running in Podman.\n", containerName)
+		if reloadType == types.SystemReloadTypeAuto {
+			enabler := newSiteServiceEnablerInstaller()
+			if err = enabler.Install(); err != nil {
+				return fmt.Errorf("failed to install skupper site service enabler: %v", err)
+			}
+		}
 		return nil
 	}
 
@@ -58,6 +64,12 @@ func Install(platform string, reloadType string) error {
 
 	if isContainerAlreadyRunningInDocker {
 		fmt.Printf("Warning: The system controller container %q is already running in Docker.\n", containerName)
+		if reloadType == types.SystemReloadTypeAuto {
+			enabler := newSiteServiceEnablerInstaller()
+			if err = enabler.Install(); err != nil {
+				return fmt.Errorf("failed to install skupper site service enabler: %v", err)
+			}
+		}
 		return nil
 	}
 
@@ -288,7 +300,7 @@ func IsContainerRunning(containerName string, platform types.Platform) bool {
 
 	for _, container := range containers {
 		if container.Name == containerName {
-			return true
+			return container.Running
 		}
 	}
 

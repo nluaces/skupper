@@ -15,6 +15,8 @@ import (
 
 func Uninstall(platform string) error {
 
+	newSiteServiceEnablerInstaller().Remove()
+
 	currentUser, err := user.Current()
 	if err != nil {
 		return fmt.Errorf("failed to get current user: %v", err)
@@ -71,8 +73,6 @@ func Uninstall(platform string) error {
 	}
 
 	systemdService.Remove()
-
-	newSiteServiceEnablerInstaller().Remove()
 
 	fmt.Printf("Platform %s infrastructure for Skupper is now uninstalled\n", platform)
 

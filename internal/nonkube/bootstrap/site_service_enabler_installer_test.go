@@ -17,9 +17,24 @@ func fakeCommand(calls *[][]string) func(string, ...string) *exec.Cmd {
 	}
 }
 
+
+func fakeCommandNotRunning(calls *[][]string) func(string, ...string) *exec.Cmd {
+	return func(name string, args ...string) *exec.Cmd {
+		*calls = append(*calls, append([]string{name}, args...))
+		for _, a := range args {
+			if a == "is-active" {
+				return exec.Command("false")
+			}
+		}
+		return exec.Command("true")
+	}
+}
+
 func newTestInstaller(t *testing.T, uid int, calls *[][]string) *SiteServiceEnablerInstaller {
 	t.Helper()
 	tmp := t.TempDir()
+	
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	return &SiteServiceEnablerInstaller{
 		uid:                 uid,
 		rootSystemdBasePath: filepath.Join(tmp, "etc", "systemd", "system"),
@@ -77,7 +92,7 @@ func TestSystemctl_Root_NoUserFlag(t *testing.T) {
 	assert.DeepEqual(t, calls[0], []string{"systemctl", "start", "foo.service"})
 }
 
-func TestRenderFile(t *testing.T) {
+func TestRenderFile_ServiceTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	dst := filepath.Join(tmp, "out.service")
 	s := &SiteServiceEnablerInstaller{}
@@ -93,6 +108,25 @@ func TestRenderFile(t *testing.T) {
 	assert.Assert(t, strings.Contains(string(content), "WantedBy=multi-user.target"))
 }
 
+func TestRenderFile_ScriptTemplate(t *testing.T) {
+	tmp := t.TempDir()
+	dst := filepath.Join(tmp, "out.sh")
+	s := &SiteServiceEnablerInstaller{}
+	err := s.renderFile(siteServiceEnablerScriptTemplate, siteServiceEnablerScriptData{
+		NamespacesDir:  "/home/user/.local/share/skupper/namespaces",
+		SystemdUnitDir: "/home/user/.config/systemd/user",
+		SystemctlArgs:  "--user ",
+	}, dst, 0755)
+	assert.NilError(t, err)
+
+	content, err := os.ReadFile(dst)
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(string(content), "NAMESPACES_DIR=\"/home/user/.local/share/skupper/namespaces\""))
+	assert.Assert(t, strings.Contains(string(content), "UNIT_DIR=\"/home/user/.config/systemd/user\""))
+	assert.Assert(t, strings.Contains(string(content), "SYSTEMCTL_ARGS=\"--user \""))
+	assert.Assert(t, strings.Contains(string(content), "POLL_INTERVAL"))
+}
+
 func TestRenderFile_InvalidTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	s := &SiteServiceEnablerInstaller{}
@@ -103,6 +137,7 @@ func TestRenderFile_InvalidTemplate(t *testing.T) {
 func TestInstall_CreatesWrapperScript(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 1000, &calls)
+	s.command = fakeCommandNotRunning(&calls)
 
 	err := s.Install()
 	assert.NilError(t, err)
@@ -110,7 +145,9 @@ func TestInstall_CreatesWrapperScript(t *testing.T) {
 	scriptPath := filepath.Join(s.scriptDir, siteServiceEnablerWrapperScript)
 	content, err := os.ReadFile(scriptPath)
 	assert.NilError(t, err)
-	assert.Equal(t, string(content), "#!/bin/sh\nexec skupper system _site-service-enabler\n")
+
+	assert.Assert(t, strings.HasPrefix(string(content), "#!/bin/sh"), "expected shell shebang")
+	assert.Assert(t, strings.Contains(string(content), "POLL_INTERVAL"))
 
 	info, err := os.Stat(scriptPath)
 	assert.NilError(t, err)
@@ -120,7 +157,8 @@ func TestInstall_CreatesWrapperScript(t *testing.T) {
 func TestInstall_CreatesServiceFile(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 0, &calls)
-	_ = os.MkdirAll(s.rootSystemdBasePath, 0755)
+	s.command = fakeCommandNotRunning(&calls)
+	_ = os.MkdirAll(s.unitPath(""), 0755)
 
 	err := s.Install()
 	assert.NilError(t, err)
@@ -135,20 +173,35 @@ func TestInstall_CreatesServiceFile(t *testing.T) {
 func TestInstall_SystemctlCallOrder(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 0, &calls)
-	_ = os.MkdirAll(s.rootSystemdBasePath, 0755)
+	s.command = fakeCommandNotRunning(&calls)
+	_ = os.MkdirAll(s.unitPath(""), 0755)
 
 	err := s.Install()
 	assert.NilError(t, err)
 
-	assert.Equal(t, len(calls), 3)
-	assert.DeepEqual(t, calls[0], []string{"systemctl", "daemon-reload"})
-	assert.DeepEqual(t, calls[1], []string{"systemctl", "enable", siteServiceEnablerServiceFile})
-	assert.DeepEqual(t, calls[2], []string{"systemctl", "start", siteServiceEnablerServiceFile})
+
+	assert.Equal(t, len(calls), 4)
+	assert.DeepEqual(t, calls[0], []string{"systemctl", "is-active", "--quiet", siteServiceEnablerServiceFile})
+	assert.DeepEqual(t, calls[1], []string{"systemctl", "daemon-reload"})
+	assert.DeepEqual(t, calls[2], []string{"systemctl", "enable", siteServiceEnablerServiceFile})
+	assert.DeepEqual(t, calls[3], []string{"systemctl", "start", siteServiceEnablerServiceFile})
+}
+
+func TestInstall_SkipsWhenAlreadyRunning(t *testing.T) {
+	var calls [][]string
+	s := newTestInstaller(t, 0, &calls)
+
+	err := s.Install()
+	assert.NilError(t, err)
+
+	assert.Equal(t, len(calls), 1)
+	assert.DeepEqual(t, calls[0], []string{"systemctl", "is-active", "--quiet", siteServiceEnablerServiceFile})
 }
 
 func TestInstall_NonRoot_SystemctlUsesUserFlag(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 1000, &calls)
+	s.command = fakeCommandNotRunning(&calls)
 
 	err := s.Install()
 	assert.NilError(t, err)
@@ -161,6 +214,7 @@ func TestInstall_NonRoot_SystemctlUsesUserFlag(t *testing.T) {
 func TestInstall_ScriptDirCreationFailure(t *testing.T) {
 	var calls [][]string
 	s := newTestInstaller(t, 1000, &calls)
+	s.command = fakeCommandNotRunning(&calls)
 	blocker := s.scriptDir
 	_ = os.MkdirAll(filepath.Dir(blocker), 0755)
 	_ = os.WriteFile(blocker, []byte("block"), 0644)
