@@ -7,41 +7,25 @@ import (
 	"path/filepath"
 )
 
-const SystemdServiceTemplate = `[Unit]
-Description=Skupper Network Observer - %s
+const SystemdPrometheusHostServiceTemplate = `[Unit]
+Description=Skupper Prometheus (host-level)
 After=network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/true
-ExecStop=/bin/true
-
-[Install]
-WantedBy=default.target
-`
-
-const SystemdPrometheusServiceTemplate = `[Unit]
-Description=Skupper Network Observer Prometheus - %s
-After=network.target
-PartOf=skupper-network-observer-%s.service
 
 [Service]
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=%s start --attach %s-skupper-prometheus
-ExecStop=%s stop %s-skupper-prometheus
+ExecStart=%s start --attach skupper-prometheus
+ExecStop=%s stop skupper-prometheus
 
 [Install]
-WantedBy=skupper-network-observer-%s.service
+WantedBy=default.target
 `
 
 const SystemdNetworkObserverServiceTemplate = `[Unit]
-Description=Skupper Network Observer Application - %s
-After=network.target skupper-controller.service skupper-network-observer-prometheus-%s.service
-Wants=skupper-controller.service
-PartOf=skupper-network-observer-%s.service
+Description=Skupper Network Observer - %s
+After=network.target skupper-controller.service skupper-prometheus.service
+Wants=skupper-controller.service skupper-prometheus.service
 
 [Service]
 Type=simple
@@ -51,7 +35,7 @@ ExecStart=%s start --attach %s-skupper-network-observer
 ExecStop=%s stop %s-skupper-network-observer
 
 [Install]
-WantedBy=skupper-network-observer-%s.service
+WantedBy=default.target
 `
 
 type SystemdServiceManager struct {
@@ -80,64 +64,87 @@ func getSystemdServiceDir() string {
 	return filepath.Join(home, ".config", "systemd", "user")
 }
 
-func (s *SystemdServiceManager) CreateServices() error {
+func (s *SystemdServiceManager) CreateNetworkObserverService() error {
 
 	if err := os.MkdirAll(s.ServiceDir, 0755); err != nil {
 		return fmt.Errorf("failed to create systemd service directory: %w", err)
 	}
 
-	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
-	mainServicePath := filepath.Join(s.ServiceDir, mainServiceName)
-	mainServiceContent := fmt.Sprintf(SystemdServiceTemplate, s.Namespace)
-	if err := os.WriteFile(mainServicePath, []byte(mainServiceContent), 0644); err != nil {
-		return fmt.Errorf("failed to write main service file: %w", err)
-	}
-
-	prometheusServiceName := fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace)
-	prometheusServicePath := filepath.Join(s.ServiceDir, prometheusServiceName)
-	prometheusServiceContent := fmt.Sprintf(SystemdPrometheusServiceTemplate,
-		s.Namespace, s.Namespace,
+	svcName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
+	svcPath := filepath.Join(s.ServiceDir, svcName)
+	svcContent := fmt.Sprintf(SystemdNetworkObserverServiceTemplate,
+		s.Namespace,
 		s.ContainerEngine, s.Namespace,
-		s.ContainerEngine, s.Namespace,
-		s.Namespace)
-	if err := os.WriteFile(prometheusServicePath, []byte(prometheusServiceContent), 0644); err != nil {
-		return fmt.Errorf("failed to write prometheus service file: %w", err)
-	}
-
-	appServiceName := fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace)
-	appServicePath := filepath.Join(s.ServiceDir, appServiceName)
-	appServiceContent := fmt.Sprintf(SystemdNetworkObserverServiceTemplate,
-		s.Namespace, s.Namespace, s.Namespace,
-		s.ContainerEngine, s.Namespace,
-		s.ContainerEngine, s.Namespace,
-		s.Namespace)
-	if err := os.WriteFile(appServicePath, []byte(appServiceContent), 0644); err != nil {
+		s.ContainerEngine, s.Namespace)
+	if err := os.WriteFile(svcPath, []byte(svcContent), 0644); err != nil {
 		return fmt.Errorf("failed to write network observer service file: %w", err)
 	}
 
-	for _, svc := range []string{
-		prometheusServiceName,
-		appServiceName,
-		mainServiceName,
-	} {
-		if err := s.enableService(svc); err != nil {
-			return fmt.Errorf("failed to enable service %s: %w", svc, err)
-		}
+	if err := s.enableService(svcName); err != nil {
+		return fmt.Errorf("failed to enable service %s: %w", svcName, err)
 	}
 
-	for _, svc := range []string{
-		prometheusServiceName,
-		appServiceName,
-	} {
-		if err := s.startService(svc); err != nil {
-			return fmt.Errorf("failed to start service %s: %w", svc, err)
-		}
+	if err := s.startService(svcName); err != nil {
+		return fmt.Errorf("failed to start service %s: %w", svcName, err)
 	}
 
-	if err := s.startService(mainServiceName); err != nil {
-		return fmt.Errorf("failed to start service: %w", err)
+	return nil
+}
+
+func (s *SystemdServiceManager) RemoveNetworkObserverService() error {
+	svcName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
+
+	if err := s.stopAndDisableService(svcName); err != nil {
+		fmt.Printf("Warning: failed to stop/disable service %s: %v\n", svcName, err)
 	}
 
+	svcPath := filepath.Join(s.ServiceDir, svcName)
+	if err := os.Remove(svcPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove service file %s: %w", svcName, err)
+	}
+
+	if err := s.reloadSystemd(); err != nil {
+		return fmt.Errorf("failed to reload systemd: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SystemdServiceManager) CreatePrometheusService() error {
+	if err := os.MkdirAll(s.ServiceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create systemd service directory: %w", err)
+	}
+
+	svcName := "skupper-prometheus.service"
+	svcPath := filepath.Join(s.ServiceDir, svcName)
+	svcContent := fmt.Sprintf(SystemdPrometheusHostServiceTemplate,
+		s.ContainerEngine,
+		s.ContainerEngine)
+	if err := os.WriteFile(svcPath, []byte(svcContent), 0644); err != nil {
+		return fmt.Errorf("failed to write prometheus service file: %w", err)
+	}
+
+	if err := s.enableServiceByPath(svcPath); err != nil {
+		return fmt.Errorf("failed to enable prometheus service: %w", err)
+	}
+	if err := s.startService(svcName); err != nil {
+		return fmt.Errorf("failed to start prometheus service: %w", err)
+	}
+	return nil
+}
+
+func (s *SystemdServiceManager) RemovePrometheusService() error {
+	svcName := "skupper-prometheus.service"
+	if err := s.stopAndDisableService(svcName); err != nil {
+		fmt.Printf("Warning: failed to stop prometheus service: %v\n", err)
+	}
+	svcPath := filepath.Join(s.ServiceDir, svcName)
+	if err := os.Remove(svcPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove prometheus service file: %w", err)
+	}
+	if err := s.reloadSystemd(); err != nil {
+		return fmt.Errorf("failed to reload systemd: %w", err)
+	}
 	return nil
 }
 
@@ -164,6 +171,19 @@ func (s *SystemdServiceManager) enableService(serviceName string) error {
 	return nil
 }
 
+func (s *SystemdServiceManager) enableServiceByPath(servicePath string) error {
+	var cmd *exec.Cmd
+	if os.Getuid() == 0 {
+		cmd = exec.Command("systemctl", "enable", servicePath)
+	} else {
+		cmd = exec.Command("systemctl", "--user", "enable", servicePath)
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to enable %s: %w", servicePath, err)
+	}
+	return nil
+}
+
 func (s *SystemdServiceManager) startService(serviceName string) error {
 	var cmd *exec.Cmd
 	if os.Getuid() == 0 {
@@ -174,33 +194,6 @@ func (s *SystemdServiceManager) startService(serviceName string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start %s: %w", serviceName, err)
 	}
-	return nil
-}
-
-func (s *SystemdServiceManager) RemoveServices() error {
-	mainServiceName := fmt.Sprintf("skupper-network-observer-%s.service", s.Namespace)
-
-	if err := s.stopAndDisableService(mainServiceName); err != nil {
-		fmt.Printf("Warning: failed to stop service: %v\n", err)
-	}
-
-	serviceNames := []string{
-		mainServiceName,
-		fmt.Sprintf("skupper-network-observer-prometheus-%s.service", s.Namespace),
-		fmt.Sprintf("skupper-network-observer-app-%s.service", s.Namespace),
-	}
-
-	for _, serviceName := range serviceNames {
-		servicePath := filepath.Join(s.ServiceDir, serviceName)
-		if err := os.Remove(servicePath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove service file %s: %w", serviceName, err)
-		}
-	}
-
-	if err := s.reloadSystemd(); err != nil {
-		return fmt.Errorf("failed to reload systemd: %w", err)
-	}
-
 	return nil
 }
 

@@ -15,7 +15,7 @@ type CmdSystemNetworkObserver struct {
 	password  string
 }
 
-func NewCmdCmdSystemNetworkObserver() *CmdSystemNetworkObserver {
+func NewCmdSystemNetworkObserver() *CmdSystemNetworkObserver {
 	return &CmdSystemNetworkObserver{}
 }
 

@@ -77,15 +77,13 @@ func (i *Installer) ValidatePrerequisitesForInstall() error {
 		return err
 	}
 
-	containerNames := []string{
-		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
-		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
+	if !IsPrometheusInstalled() {
+		return fmt.Errorf("prometheus is not installed; run \"skupper system prometheus\" first")
 	}
 
-	for _, containerName := range containerNames {
-		if i.isContainerRunning(containerName) {
-			return fmt.Errorf("container %q is already running in %s", containerName, i.Platform)
-		}
+	netobsContainer := fmt.Sprintf("%s-skupper-network-observer", i.Namespace)
+	if i.isContainerRunning(netobsContainer) {
+		return fmt.Errorf("container %q is already running in %s", netobsContainer, i.Platform)
 	}
 
 	sites, err := i.siteHandler.List(fs.GetOptions{InputOnly: true})
@@ -113,10 +111,6 @@ func (i *Installer) Install() (*InstallResult, error) {
 
 	i.logger.Info("Starting network observer installation", slog.String("namespace", i.Namespace))
 
-	if err := i.createDirectories(); err != nil {
-		return nil, fmt.Errorf("failed to create directories: %w", err)
-	}
-
 	if err := i.generateConfigurations(); err != nil {
 		return nil, fmt.Errorf("failed to generate configurations: %w", err)
 	}
@@ -135,12 +129,12 @@ func (i *Installer) Install() (*InstallResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = i.installContainer(GetPrometheusContainer(i.Namespace, i.ports))
-	if err != nil {
-		return nil, err
+
+	if err := WriteTargetFile(i.Namespace, i.ports.metrics); err != nil {
+		return nil, fmt.Errorf("failed to write prometheus target file: %w", err)
 	}
 
-	err = i.createSystemdServices()
+	err = i.createNetObsSystemdService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create systemd services: %w", err)
 	}
@@ -153,30 +147,16 @@ func (i *Installer) Install() (*InstallResult, error) {
 }
 
 func (i *Installer) ValidatePrerequisitesForUninstall() error {
-
-	containerNames := []string{
-		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
-		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
+	netobsContainer := fmt.Sprintf("%s-skupper-network-observer", i.Namespace)
+	if !i.isContainerRunning(netobsContainer) {
+		return fmt.Errorf("network observer is not running in namespace %q, there is nothing to uninstall", i.Namespace)
 	}
-
-	containersAreRunning := false
-	for _, containerName := range containerNames {
-		if i.isContainerRunning(containerName) {
-			containersAreRunning = true
-		}
-	}
-
-	if !containersAreRunning {
-		return fmt.Errorf("network observer containers not running in namespace %q, there is nothing to uninstall", i.Namespace)
-	}
-
 	return nil
 }
 
 func UninstallForNamespace(namespace string) error {
-	namespacePath := api.GetHostNamespaceHome(namespace)
-	dataDir := filepath.Join(namespacePath, "network-observer")
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+	targetFile := filepath.Join(api.GetPrometheusTargetsDir(), namespace+".json")
+	if _, err := os.Stat(targetFile); os.IsNotExist(err) {
 		return nil
 	}
 
@@ -190,14 +170,17 @@ func UninstallForNamespace(namespace string) error {
 func (i *Installer) Uninstall() error {
 	i.logger.Info("Uninstalling network observer", slog.String("namespace", i.Namespace))
 
+	if err := RemoveTargetFile(i.Namespace); err != nil {
+		i.logger.Warn("Failed to remove prometheus target file", slog.Any("error", err))
+	}
+
 	manager := NewSystemdServiceManager(i.Namespace, i.Platform, ports{})
-	if err := manager.RemoveServices(); err != nil {
+	if err := manager.RemoveNetworkObserverService(); err != nil {
 		i.logger.Warn("Failed to remove systemd services", slog.Any("error", err))
 	}
 
 	containerNames := []string{
 		fmt.Sprintf("%s-skupper-network-observer", i.Namespace),
-		fmt.Sprintf("%s-skupper-prometheus", i.Namespace),
 	}
 	for _, name := range containerNames {
 		if i.isContainerRunning(name) {
@@ -209,12 +192,6 @@ func (i *Installer) Uninstall() error {
 		if err := i.cli.ContainerRemove(name); err != nil {
 			i.logger.Warn("Failed to remove container", slog.String("name", name), slog.Any("error", err))
 		}
-	}
-
-	namespacePath := api.GetHostNamespaceHome(i.Namespace)
-	dataDir := filepath.Join(namespacePath, "network-observer")
-	if err := os.RemoveAll(dataDir); err != nil {
-		i.logger.Warn("Failed to remove network-observer data directory", slog.String("path", dataDir), slog.Any("error", err))
 	}
 
 	i.logger.Info("Network observer uninstalled successfully")
@@ -296,37 +273,14 @@ func (i *Installer) isContainerRunning(containerName string) bool {
 	return false
 }
 
-func (i *Installer) createDirectories() error {
-	namespacePath := api.GetHostNamespaceHome(i.Namespace)
-	dirs := []string{
-		filepath.Join(namespacePath, "network-observer"),
-		filepath.Join(namespacePath, "network-observer", "prometheus"),
-	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	dataDir := filepath.Join(namespacePath, "network-observer", "prometheus", "data")
-	if err := os.MkdirAll(dataDir, 0750); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dataDir, err)
-	}
-
-	return nil
-}
-
 func (i *Installer) generateConfigurations() error {
-	namespacePath := api.GetHostNamespaceHome(i.Namespace)
-
-	prometheusPort, err := utils.TcpPortNextFree(9090)
+	prometheusPort, err := ReadPrometheusPort()
 	if err != nil {
-		return fmt.Errorf("failing to assign port to prometheus: %s", err)
+		return err
 	}
-	metricsPort, err := utils.TcpPortNextFree(9000)
+	metricsPort, err := NextFreeMetricsPort(9000)
 	if err != nil {
-		return fmt.Errorf("failing to assign port to prometheus API: %s", err)
+		return fmt.Errorf("failing to assign port to metrics: %s", err)
 	}
 	netobsPort, err := utils.TcpPortNextFree(8080)
 	if err != nil {
@@ -352,11 +306,6 @@ func (i *Installer) generateConfigurations() error {
 		slog.String("router", routerEndpoint),
 	)
 
-	prometheusPath := filepath.Join(namespacePath, "network-observer", "prometheus", "prometheus.yml")
-	if err := os.WriteFile(prometheusPath, []byte(RenderPrometheusConfig(netobsPort)), 0644); err != nil {
-		return fmt.Errorf("failed to write prometheus config: %w", err)
-	}
-
 	return nil
 }
 
@@ -381,15 +330,15 @@ func (i *Installer) installContainer(newContainer container.Container) error {
 	return nil
 }
 
-func (i *Installer) createSystemdServices() error {
-	i.logger.Info("Creating systemd services", slog.String("namespace", i.Namespace))
+func (i *Installer) createNetObsSystemdService() error {
+	i.logger.Info("Creating systemd service for Network Observer", slog.String("namespace", i.Namespace))
 
 	manager := NewSystemdServiceManager(i.Namespace, i.Platform, i.ports)
-	err := manager.CreateServices()
+	err := manager.CreateNetworkObserverService()
 	if err != nil {
-		return fmt.Errorf("failed to create systemd services: %w", err)
+		return fmt.Errorf("failed to create systemd service: %w", err)
 	}
 
-	i.logger.Info("Systemd services created successfully")
+	i.logger.Info("Systemd service created successfully")
 	return nil
 }

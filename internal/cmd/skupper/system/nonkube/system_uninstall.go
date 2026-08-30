@@ -26,6 +26,7 @@ type CmdSystemUninstall struct {
 	forceUninstall           bool
 	TearDown                 func(namespace string) error
 	NetworkObserverUninstall func(namespace string) error
+	PrometheusUninstall      func() error
 }
 
 func NewCmdSystemUninstall() *CmdSystemUninstall {
@@ -41,6 +42,7 @@ func (cmd *CmdSystemUninstall) NewClient(cobraCommand *cobra.Command, args []str
 	cmd.Namespace = cobraCommand.Flag("namespace").Value.String()
 	cmd.TearDown = bootstrap.Teardown
 	cmd.NetworkObserverUninstall = networkobserver.UninstallForNamespace
+	cmd.PrometheusUninstall = networkobserver.UninstallPrometheus
 }
 
 func (cmd *CmdSystemUninstall) ValidateInput(args []string) error {
@@ -113,6 +115,12 @@ func (cmd *CmdSystemUninstall) Run() error {
 					}
 				}
 			}
+		}
+	}
+
+	if cmd.PrometheusUninstall != nil {
+		if err := cmd.PrometheusUninstall(); err != nil {
+			return fmt.Errorf("failed to uninstall prometheus: %s", err)
 		}
 	}
 

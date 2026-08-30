@@ -36,6 +36,7 @@ approach, which is based on the new set of Custom Resource Definitions (CRDs).`,
 	cmd.AddCommand(CmdSystemApplyFactory(platform))
 	cmd.AddCommand(CmdSystemDeleteFactory(platform))
 	cmd.AddCommand(CmdSystemNetworkObserverFactory(platform))
+	cmd.AddCommand(CmdSystemPrometheusFactory(platform))
 
 	return cmd
 }
@@ -235,7 +236,7 @@ func CmdSystemDeleteFactory(configuredPlatform common.Platform) *cobra.Command {
 func CmdSystemNetworkObserverFactory(configuredPlatform common.Platform) *cobra.Command {
 
 	//This implementation will warn the user that the command is not available for Kubernetes environments.
-	kubeCommand := kube.NewCmdCmdSystemNetworkObserver()
+	kubeCommand := kube.NewCmdSystemNetworkObserver()
 	nonKubeCommand := nonkube.NewCmdSystemNetworkObserver()
 
 	cmdDesc := common.SkupperCmdDescription{
@@ -248,10 +249,37 @@ The network observer requires an existing Skupper site and will deploy two conta
 		Example: `skupper system network-observer --namespace west`,
 	}
 
-	cmd := common.ConfigureCobraCommand(configuredPlatform, cmdDesc, nil, nonKubeCommand)
+	cmd := common.ConfigureCobraCommand(configuredPlatform, cmdDesc, kubeCommand, nonKubeCommand)
 
 	cmdFlags := common.CommandNetworkObserverFlags{}
 	cmd.Flags().BoolVar(&cmdFlags.Uninstall, common.FlagNameNetworkObserverUninstall, false, common.FlagDescNetworkObserverUninstall)
+
+	kubeCommand.CobraCmd = cmd
+	kubeCommand.Flags = &cmdFlags
+	nonKubeCommand.CobraCmd = cmd
+	nonKubeCommand.Flags = &cmdFlags
+
+	return cmd
+}
+
+func CmdSystemPrometheusFactory(configuredPlatform common.Platform) *cobra.Command {
+
+	kubeCommand := kube.NewCmdSystemPrometheus()
+	nonKubeCommand := nonkube.NewCmdSystemPrometheus()
+
+	cmdDesc := common.SkupperCmdDescription{
+		Use:   "prometheus",
+		Short: "Install the host-level Prometheus instance",
+		Long: `Install a single Prometheus container shared by all network observers on this host.
+This must be run before installing any network observer.`,
+		Example: `skupper system prometheus
+skupper system prometheus --uninstall`,
+	}
+
+	cmd := common.ConfigureCobraCommand(configuredPlatform, cmdDesc, kubeCommand, nonKubeCommand)
+
+	cmdFlags := common.CommandPrometheusFlags{}
+	cmd.Flags().BoolVar(&cmdFlags.Uninstall, common.FlagNamePrometheusUninstall, false, common.FlagDescPrometheusUninstall)
 
 	kubeCommand.CobraCmd = cmd
 	kubeCommand.Flags = &cmdFlags

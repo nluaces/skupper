@@ -18,6 +18,7 @@ func GetNetworkObserverContainer(namespace string, p ports) container.Container 
 		Image: images.GetNetworkObserverImageName(),
 		Command: []string{
 			fmt.Sprintf("-listen=127.0.0.1:%d", p.netobs),
+			fmt.Sprintf("-listen-metrics=127.0.0.1:%d", p.metrics),
 			fmt.Sprintf("-prometheus-api=http://127.0.0.1:%d", p.prometheus),
 			fmt.Sprintf("-router-endpoint=%s", p.router),
 			"-router-tls-ca=/etc/messaging/ca.crt",
@@ -41,13 +42,12 @@ func GetNetworkObserverContainer(namespace string, p ports) container.Container 
 	}
 }
 
-func GetPrometheusContainer(namespace string, p ports) container.Container {
-	namespacePath := api.GetHostNamespaceHome(namespace)
-	prometheusDir := filepath.Join(namespacePath, "network-observer", "prometheus")
-	dataPath := filepath.Join(namespacePath, "network-observer", "prometheus", "data")
+func GetHostPrometheusContainer(p prometheusInstallerPorts) container.Container {
+	prometheusHome := api.GetHostPrometheusHome()
+	dataPath := filepath.Join(prometheusHome, "data")
 
 	return container.Container{
-		Name:  fmt.Sprintf("%s-skupper-prometheus", namespace),
+		Name:  "skupper-prometheus",
 		Image: images.GetPrometheusImageName(),
 		Command: []string{
 			"--config.file=/etc/prometheus/prometheus.yml",
@@ -61,7 +61,7 @@ func GetPrometheusContainer(namespace string, p ports) container.Container {
 		},
 		FileMounts: []container.FileMount{
 			{
-				Source:      prometheusDir,
+				Source:      prometheusHome,
 				Destination: "/etc/prometheus",
 				Options:     []string{"z"},
 			},

@@ -94,7 +94,10 @@ for other Kubernetes flavors, loadbalancer is the default.`
 	FlagDescReloadType = "Specify the type of reload to perform. Choices: manual, auto"
 
 	FlagNameNetworkObserverUninstall = "uninstall"
-	FlagDescNetworkObserverUninstall = "Uninstall Network Observer and related containers"
+	FlagDescNetworkObserverUninstall = "Uninstall Network Observer"
+
+	FlagNamePrometheusUninstall = "uninstall"
+	FlagDescPrometheusUninstall = "Uninstall Prometheus"
 )
 
 type CommandSiteCreateFlags struct {
@@ -249,6 +252,10 @@ type CommandListenerGenerateFlags struct {
 }
 
 type CommandNetworkObserverFlags struct {
+	Uninstall bool
+}
+
+type CommandPrometheusFlags struct {
 	Uninstall bool
 }
 
