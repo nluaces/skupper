@@ -52,10 +52,10 @@ func Install(platform string, reloadType string) error {
 
 	containerName := fmt.Sprintf("%s-skupper-controller", config.username)
 
-	isContainerAlreadyRunningInPodman := IsContainerRunning(containerName, types.PlatformPodman)
+	foundInPodman, podmanState := FindContainer(containerName, types.PlatformPodman)
 
-	if isContainerAlreadyRunningInPodman {
-		fmt.Printf("Warning: The system controller container %q is already running in Podman.\n", containerName)
+	if foundInPodman {
+		fmt.Printf("Warning: The system controller container %q is already present in Podman (state: %s).\n", containerName, podmanState)
 		if reloadType == types.SystemReloadTypeAuto {
 			enabler := newSiteServiceEnablerInstaller()
 			if err = enabler.Install(); err != nil {
@@ -65,10 +65,10 @@ func Install(platform string, reloadType string) error {
 		return nil
 	}
 
-	isContainerAlreadyRunningInDocker := IsContainerRunning(containerName, types.PlatformDocker)
+	foundInDocker, dockerState := FindContainer(containerName, types.PlatformDocker)
 
-	if isContainerAlreadyRunningInDocker {
-		fmt.Printf("Warning: The system controller container %q is already running in Docker.\n", containerName)
+	if foundInDocker {
+		fmt.Printf("Warning: The system controller container %q is already present in Docker (state: %s).\n", containerName, dockerState)
 		if reloadType == types.SystemReloadTypeAuto {
 			enabler := newSiteServiceEnablerInstaller()
 			if err = enabler.Install(); err != nil {
@@ -281,7 +281,7 @@ func createSystemdService(container container.Container, platform string) error 
 	return nil
 }
 
-func IsContainerRunning(containerName string, platform types.Platform) bool {
+func FindContainer(containerName string, platform types.Platform) (bool, string) {
 
 	endpoint := fmt.Sprintf("unix://%s/podman/podman.sock", api.GetRuntimeDir())
 	if platform == types.PlatformDocker {
@@ -290,19 +290,19 @@ func IsContainerRunning(containerName string, platform types.Platform) bool {
 
 	cli, err := internalclient.NewCompatClient(endpoint, "")
 	if err != nil {
-		return false
+		return false, ""
 	}
 
 	containers, err := cli.ContainerList()
 	if err != nil {
-		return false
+		return false, ""
 	}
 
-	for _, container := range containers {
-		if container.Name == containerName {
-			return container.Running
+	for _, c := range containers {
+		if c.Name == containerName {
+			return true, c.State
 		}
 	}
 
-	return false
+	return false, ""
 }
