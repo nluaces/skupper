@@ -5,8 +5,8 @@ GOOS ?= linux
 GOARCH ?= amd64
 
 REGISTRY := quay.io/skupper
-IMAGE_TAG := v2-dev
-ROUTER_IMAGE_TAG := main
+IMAGE_TAG := 2.2.2
+ROUTER_IMAGE_TAG := 3.5.2
 PLATFORMS ?= linux/amd64,linux/arm64
 CONTAINERFILES := Dockerfile.cli Dockerfile.kube-adaptor Dockerfile.controller Dockerfile.network-observer Dockerfile.system-controller
 GO_IMAGE_BASE_TAG := 1.25
@@ -207,6 +207,9 @@ generate-network-observer-devel:
 		--set auth.strategy=none \
 		--set extraArgs={"-cors-allow-all"} \
 		--set skipManagementLabels=true > skupper-network-observer-devel.yaml
+
+print-%:
+	@echo $($*)
 
 clean:
 	rm -rf skupper controller kube-adaptor \
