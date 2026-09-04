@@ -31,7 +31,7 @@ enable_service() {
         systemctl_run daemon-reload || true
         changed=1
     fi
-    systemctl_run enable --now "$svc" || true
+    systemctl_run enable "$svc" || true
     if [ "$changed" -eq 1 ]; then
         systemctl_run restart "$svc" || true
     fi
